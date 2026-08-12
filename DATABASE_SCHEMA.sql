@@ -1301,3 +1301,378 @@ BEGIN
   ) real_tm ON real_tm.proyecto_id = p.id;
 END$$
 DELIMITER ;
+
+-- ========================================
+-- 16. OBSERVACIONES (inventario de observaciones de certificación por HU)
+-- ========================================
+-- Cada HU puede tener varias observaciones levantadas en certificación.
+-- El estado es libre (cualquier transición, sin flujo forzado) porque en
+-- la práctica una observación puede saltar etapas o volver atrás. Cada
+-- cambio de estado queda en `observaciones_historial` — eso es a la vez
+-- el registro de auditoría y la fuente de "cuántas iteraciones" tuvo la
+-- observación (una iteración = una transición de estado después de
+-- creada, no cuenta la creación en sí).
+
+CREATE TABLE IF NOT EXISTS observaciones (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  historia_usuario_id INT NOT NULL,
+  titulo VARCHAR(255) NOT NULL,
+  descripcion LONGTEXT,
+  estado ENUM('en_atencion', 'en_analisis', 'en_publicacion', 're_test', 'certificada') NOT NULL DEFAULT 'en_atencion',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (historia_usuario_id) REFERENCES historias_usuario(id) ON DELETE CASCADE,
+  INDEX idx_obs_hu (historia_usuario_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS observaciones_historial (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  observacion_id INT NOT NULL,
+  estado_anterior ENUM('en_atencion', 'en_analisis', 'en_publicacion', 're_test', 'certificada'),
+  estado_nuevo ENUM('en_atencion', 'en_analisis', 'en_publicacion', 're_test', 'certificada') NOT NULL,
+  nota LONGTEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (observacion_id) REFERENCES observaciones(id) ON DELETE CASCADE,
+  INDEX idx_obshist_obs (observacion_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Imágenes guardadas como BLOB en la propia base (sin depender de disco
+-- persistente ni de un servicio externo — el filesystem del contenedor en
+-- Railway es efímero, así que un archivo en disco se perdería en cada
+-- redeploy).
+CREATE TABLE IF NOT EXISTS observaciones_imagenes (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  observacion_id INT NOT NULL,
+  nombre_archivo VARCHAR(255) NOT NULL,
+  tipo_mime VARCHAR(100) NOT NULL,
+  contenido LONGBLOB NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (observacion_id) REFERENCES observaciones(id) ON DELETE CASCADE,
+  INDEX idx_obsimg_obs (observacion_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS observaciones_miembros (
+  observacion_id INT NOT NULL,
+  miembro_id INT NOT NULL,
+  PRIMARY KEY (observacion_id, miembro_id),
+  FOREIGN KEY (observacion_id) REFERENCES observaciones(id) ON DELETE CASCADE,
+  FOREIGN KEY (miembro_id) REFERENCES miembros_proyecto(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+DROP PROCEDURE IF EXISTS sp_crear_observacion;
+DELIMITER $$
+CREATE PROCEDURE sp_crear_observacion (
+  IN p_historia_usuario_id INT,
+  IN p_titulo VARCHAR(255),
+  IN p_descripcion LONGTEXT
+)
+BEGIN
+  DECLARE v_id INT;
+  INSERT INTO observaciones (historia_usuario_id, titulo, descripcion, estado)
+  VALUES (p_historia_usuario_id, p_titulo, p_descripcion, 'en_atencion');
+  SET v_id = LAST_INSERT_ID();
+  INSERT INTO observaciones_historial (observacion_id, estado_anterior, estado_nuevo)
+  VALUES (v_id, NULL, 'en_atencion');
+  SELECT * FROM observaciones WHERE id = v_id;
+END$$
+DELIMITER ;
+
+DROP PROCEDURE IF EXISTS sp_listar_observaciones_hu;
+DELIMITER $$
+CREATE PROCEDURE sp_listar_observaciones_hu (
+  IN p_historia_usuario_id INT
+)
+BEGIN
+  SELECT o.*,
+    (SELECT COUNT(*) FROM observaciones_historial oh WHERE oh.observacion_id = o.id AND oh.estado_anterior IS NOT NULL) AS iteraciones,
+    (SELECT COUNT(*) FROM observaciones_imagenes oi WHERE oi.observacion_id = o.id) AS cantidad_imagenes
+  FROM observaciones o
+  WHERE o.historia_usuario_id = p_historia_usuario_id
+  ORDER BY (o.estado = 'certificada') ASC, o.created_at ASC;
+END$$
+DELIMITER ;
+
+DROP PROCEDURE IF EXISTS sp_obtener_observacion;
+DELIMITER $$
+CREATE PROCEDURE sp_obtener_observacion (
+  IN p_id INT
+)
+BEGIN
+  SELECT * FROM observaciones WHERE id = p_id;
+END$$
+DELIMITER ;
+
+DROP PROCEDURE IF EXISTS sp_cambiar_estado_observacion;
+DELIMITER $$
+CREATE PROCEDURE sp_cambiar_estado_observacion (
+  IN p_id INT,
+  IN p_estado_nuevo VARCHAR(20),
+  IN p_nota LONGTEXT
+)
+BEGIN
+  DECLARE v_estado_actual VARCHAR(20);
+
+  SELECT estado INTO v_estado_actual FROM observaciones WHERE id = p_id;
+
+  IF v_estado_actual IS NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'La observación no existe.';
+  END IF;
+
+  UPDATE observaciones SET estado = p_estado_nuevo WHERE id = p_id;
+  INSERT INTO observaciones_historial (observacion_id, estado_anterior, estado_nuevo, nota)
+  VALUES (p_id, v_estado_actual, p_estado_nuevo, p_nota);
+
+  SELECT * FROM observaciones WHERE id = p_id;
+END$$
+DELIMITER ;
+
+DROP PROCEDURE IF EXISTS sp_eliminar_observacion;
+DELIMITER $$
+CREATE PROCEDURE sp_eliminar_observacion (
+  IN p_id INT
+)
+BEGIN
+  DELETE FROM observaciones WHERE id = p_id;
+END$$
+DELIMITER ;
+
+DROP PROCEDURE IF EXISTS sp_listar_historial_observacion;
+DELIMITER $$
+CREATE PROCEDURE sp_listar_historial_observacion (
+  IN p_observacion_id INT
+)
+BEGIN
+  SELECT * FROM observaciones_historial WHERE observacion_id = p_observacion_id ORDER BY created_at ASC;
+END$$
+DELIMITER ;
+
+DROP PROCEDURE IF EXISTS sp_asignar_miembro_observacion;
+DELIMITER $$
+CREATE PROCEDURE sp_asignar_miembro_observacion (
+  IN p_observacion_id INT,
+  IN p_miembro_id INT
+)
+BEGIN
+  DECLARE v_existe INT DEFAULT 0;
+
+  SELECT COUNT(*) INTO v_existe FROM observaciones_miembros
+  WHERE observacion_id = p_observacion_id AND miembro_id = p_miembro_id;
+
+  IF v_existe > 0 THEN
+    DELETE FROM observaciones_miembros
+    WHERE observacion_id = p_observacion_id AND miembro_id = p_miembro_id;
+  ELSE
+    INSERT INTO observaciones_miembros (observacion_id, miembro_id) VALUES (p_observacion_id, p_miembro_id);
+  END IF;
+
+  SELECT miembro_id FROM observaciones_miembros WHERE observacion_id = p_observacion_id;
+END$$
+DELIMITER ;
+
+DROP PROCEDURE IF EXISTS sp_listar_miembros_observacion;
+DELIMITER $$
+CREATE PROCEDURE sp_listar_miembros_observacion (
+  IN p_observacion_id INT
+)
+BEGIN
+  -- Trae el miembro completo (no solo el id): el detalle de una
+  -- observación no tiene ya cargada la lista de miembros del proyecto
+  -- como sí la tiene el Gantt, así que evita una consulta extra.
+  SELECT mp.*
+  FROM observaciones_miembros om
+  JOIN miembros_proyecto mp ON om.miembro_id = mp.id
+  WHERE om.observacion_id = p_observacion_id
+  ORDER BY mp.nombre;
+END$$
+DELIMITER ;
+
+DROP PROCEDURE IF EXISTS sp_agregar_imagen_observacion;
+DELIMITER $$
+CREATE PROCEDURE sp_agregar_imagen_observacion (
+  IN p_observacion_id INT,
+  IN p_nombre_archivo VARCHAR(255),
+  IN p_tipo_mime VARCHAR(100),
+  IN p_contenido LONGBLOB
+)
+BEGIN
+  INSERT INTO observaciones_imagenes (observacion_id, nombre_archivo, tipo_mime, contenido)
+  VALUES (p_observacion_id, p_nombre_archivo, p_tipo_mime, p_contenido);
+  SELECT LAST_INSERT_ID() AS id;
+END$$
+DELIMITER ;
+
+DROP PROCEDURE IF EXISTS sp_listar_imagenes_observacion;
+DELIMITER $$
+CREATE PROCEDURE sp_listar_imagenes_observacion (
+  IN p_observacion_id INT
+)
+BEGIN
+  -- Sin `contenido`: esto alimenta la grilla de miniaturas (que pide cada
+  -- imagen por separado vía sp_obtener_imagen_observacion), no tiene
+  -- sentido viajar los bytes acá y de nuevo en cada <img>.
+  SELECT id, observacion_id, nombre_archivo, tipo_mime, created_at
+  FROM observaciones_imagenes
+  WHERE observacion_id = p_observacion_id
+  ORDER BY created_at ASC;
+END$$
+DELIMITER ;
+
+DROP PROCEDURE IF EXISTS sp_obtener_imagen_observacion;
+DELIMITER $$
+CREATE PROCEDURE sp_obtener_imagen_observacion (
+  IN p_id INT
+)
+BEGIN
+  SELECT id, tipo_mime, nombre_archivo, contenido FROM observaciones_imagenes WHERE id = p_id;
+END$$
+DELIMITER ;
+
+DROP PROCEDURE IF EXISTS sp_eliminar_imagen_observacion;
+DELIMITER $$
+CREATE PROCEDURE sp_eliminar_imagen_observacion (
+  IN p_id INT
+)
+BEGIN
+  DELETE FROM observaciones_imagenes WHERE id = p_id;
+END$$
+DELIMITER ;
+
+-- ========================================
+-- 17. INVENTARIO DE OBSERVACIONES POR PROYECTO
+-- ========================================
+-- Filtros y orden se resuelven en la capa de servicio (Node), no acá —
+-- estas SPs devuelven todo lo necesario en pocas consultas (evitar N+1)
+-- y el filtrado/orden se aplica en memoria, mismo patrón que
+-- estructuraService.
+
+DROP PROCEDURE IF EXISTS sp_listar_observaciones_proyecto;
+DELIMITER $$
+CREATE PROCEDURE sp_listar_observaciones_proyecto (
+  IN p_proyecto_id INT
+)
+BEGIN
+  SELECT
+    o.id, o.historia_usuario_id, o.titulo, o.descripcion, o.estado, o.created_at, o.updated_at,
+    h.codigo AS hu_codigo, h.titulo AS hu_titulo,
+    e.id AS epica_id, e.nombre AS epica_nombre,
+    m.id AS modulo_id, m.nombre AS modulo_nombre,
+    et.id AS etapa_id, et.nombre AS etapa_nombre
+  FROM observaciones o
+  JOIN historias_usuario h ON o.historia_usuario_id = h.id
+  JOIN epicas e ON h.epica_id = e.id
+  JOIN modulos m ON e.modulo_id = m.id
+  JOIN etapas et ON m.etapa_id = et.id
+  WHERE et.proyecto_id = p_proyecto_id
+  ORDER BY (o.estado = 'certificada') ASC, o.created_at ASC;
+END$$
+DELIMITER ;
+
+DROP PROCEDURE IF EXISTS sp_listar_iteraciones_observaciones_proyecto;
+DELIMITER $$
+CREATE PROCEDURE sp_listar_iteraciones_observaciones_proyecto (
+  IN p_proyecto_id INT
+)
+BEGIN
+  SELECT oh.observacion_id, COUNT(*) AS iteraciones
+  FROM observaciones_historial oh
+  JOIN observaciones o ON oh.observacion_id = o.id
+  JOIN historias_usuario h ON o.historia_usuario_id = h.id
+  JOIN epicas e ON h.epica_id = e.id
+  JOIN modulos m ON e.modulo_id = m.id
+  JOIN etapas et ON m.etapa_id = et.id
+  WHERE et.proyecto_id = p_proyecto_id AND oh.estado_anterior IS NOT NULL
+  GROUP BY oh.observacion_id;
+END$$
+DELIMITER ;
+
+DROP PROCEDURE IF EXISTS sp_listar_conteo_imagenes_proyecto;
+DELIMITER $$
+CREATE PROCEDURE sp_listar_conteo_imagenes_proyecto (
+  IN p_proyecto_id INT
+)
+BEGIN
+  SELECT oi.observacion_id, COUNT(*) AS cantidad
+  FROM observaciones_imagenes oi
+  JOIN observaciones o ON oi.observacion_id = o.id
+  JOIN historias_usuario h ON o.historia_usuario_id = h.id
+  JOIN epicas e ON h.epica_id = e.id
+  JOIN modulos m ON e.modulo_id = m.id
+  JOIN etapas et ON m.etapa_id = et.id
+  WHERE et.proyecto_id = p_proyecto_id
+  GROUP BY oi.observacion_id;
+END$$
+DELIMITER ;
+
+DROP PROCEDURE IF EXISTS sp_listar_miembros_observaciones_proyecto;
+DELIMITER $$
+CREATE PROCEDURE sp_listar_miembros_observaciones_proyecto (
+  IN p_proyecto_id INT
+)
+BEGIN
+  SELECT om.observacion_id, om.miembro_id
+  FROM observaciones_miembros om
+  JOIN observaciones o ON om.observacion_id = o.id
+  JOIN historias_usuario h ON o.historia_usuario_id = h.id
+  JOIN epicas e ON h.epica_id = e.id
+  JOIN modulos m ON e.modulo_id = m.id
+  JOIN etapas et ON m.etapa_id = et.id
+  WHERE et.proyecto_id = p_proyecto_id;
+END$$
+DELIMITER ;
+
+-- ========================================
+-- 18. CORTES DE OBSERVACIONES (evolución de HU abiertas/certificadas)
+-- ========================================
+-- Snapshot manual (no hay cron): cada "Guardar corte" es una fila nueva,
+-- con fecha_hora completa (no solo fecha) — a diferencia de los cortes de
+-- Avance Célula (que hacen upsert por día), acá cada guardado queda como
+-- un punto propio en la línea de tiempo, para poder trackear evolución
+-- incluso varias veces por día/hora si hace falta. Los conteos se calculan
+-- en la capa de servicio (Node) a partir del inventario ya cargado, y acá
+-- solo se persisten.
+
+CREATE TABLE IF NOT EXISTS cortes_observaciones (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  proyecto_id INT NOT NULL,
+  fecha_hora TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  total_hu_con_observaciones INT NOT NULL DEFAULT 0,
+  hu_abiertas INT NOT NULL DEFAULT 0,
+  hu_certificadas INT NOT NULL DEFAULT 0,
+  total_observaciones INT NOT NULL DEFAULT 0,
+  observaciones_abiertas INT NOT NULL DEFAULT 0,
+  observaciones_certificadas INT NOT NULL DEFAULT 0,
+  FOREIGN KEY (proyecto_id) REFERENCES proyectos(id) ON DELETE CASCADE,
+  INDEX idx_corteobs_proyecto (proyecto_id, fecha_hora)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+DROP PROCEDURE IF EXISTS sp_guardar_corte_observaciones;
+DELIMITER $$
+CREATE PROCEDURE sp_guardar_corte_observaciones (
+  IN p_proyecto_id INT,
+  IN p_total_hu INT,
+  IN p_hu_abiertas INT,
+  IN p_hu_certificadas INT,
+  IN p_total_obs INT,
+  IN p_obs_abiertas INT,
+  IN p_obs_certificadas INT
+)
+BEGIN
+  INSERT INTO cortes_observaciones (
+    proyecto_id, total_hu_con_observaciones, hu_abiertas, hu_certificadas,
+    total_observaciones, observaciones_abiertas, observaciones_certificadas
+  )
+  VALUES (p_proyecto_id, p_total_hu, p_hu_abiertas, p_hu_certificadas, p_total_obs, p_obs_abiertas, p_obs_certificadas);
+
+  SELECT * FROM cortes_observaciones WHERE id = LAST_INSERT_ID();
+END$$
+DELIMITER ;
+
+DROP PROCEDURE IF EXISTS sp_listar_cortes_observaciones;
+DELIMITER $$
+CREATE PROCEDURE sp_listar_cortes_observaciones (
+  IN p_proyecto_id INT
+)
+BEGIN
+  SELECT * FROM cortes_observaciones WHERE proyecto_id = p_proyecto_id ORDER BY fecha_hora ASC;
+END$$
+DELIMITER ;

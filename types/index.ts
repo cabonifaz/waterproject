@@ -190,6 +190,81 @@ export interface FilaAvanceCedula {
 }
 
 // ========================================
+// OBSERVACIONES (inventario de certificación por HU)
+// ========================================
+
+export type EstadoObservacion = 'en_atencion' | 'en_analisis' | 'en_publicacion' | 're_test' | 'certificada';
+
+export interface Observacion {
+  id: number;
+  historia_usuario_id: number;
+  titulo: string;
+  descripcion?: string;
+  estado: EstadoObservacion;
+  created_at: Date;
+  updated_at: Date;
+}
+
+// Fila devuelta por sp_listar_observaciones_hu: la observación + sus
+// contadores derivados (no vienen en la tabla, se calculan en la SP).
+export interface ObservacionConContadores extends Observacion {
+  iteraciones: number;
+  cantidad_imagenes: number;
+}
+
+export interface HistorialObservacion {
+  id: number;
+  observacion_id: number;
+  estado_anterior: EstadoObservacion | null;
+  estado_nuevo: EstadoObservacion;
+  nota?: string;
+  created_at: Date;
+}
+
+// Metadata de una imagen (sin el contenido — se pide aparte vía la ruta
+// que sirve los bytes crudos, /api/observaciones/[id]/imagenes/[imagenId]).
+export interface ImagenObservacionMeta {
+  id: number;
+  observacion_id: number;
+  nombre_archivo: string;
+  tipo_mime: string;
+  created_at: Date;
+}
+
+// Fila "aplanada" para el inventario del proyecto (con contexto de HU /
+// épica / módulo / etapa + miembros asignados) — es lo que consume la
+// página de filtros.
+export interface ObservacionCompleta extends ObservacionConContadores {
+  historial: HistorialObservacion[];
+  miembros: Miembro[];
+  imagenes: ImagenObservacionMeta[];
+}
+
+export interface ObservacionInventario extends ObservacionConContadores {
+  huCodigo?: string;
+  huTitulo: string;
+  epicaId: number;
+  epicaNombre: string;
+  moduloId: number;
+  moduloNombre: string;
+  etapaId: number;
+  etapaNombre: string;
+  miembros: Miembro[];
+}
+
+export interface CorteObservaciones {
+  id: number;
+  proyecto_id: number;
+  fecha_hora: Date;
+  total_hu_con_observaciones: number;
+  hu_abiertas: number;
+  hu_certificadas: number;
+  total_observaciones: number;
+  observaciones_abiertas: number;
+  observaciones_certificadas: number;
+}
+
+// ========================================
 // RESPUESTAS DE API
 // ========================================
 

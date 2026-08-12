@@ -15,7 +15,8 @@ import Sidebar from '@/components/Sidebar';
 import SelectorMiembros from '@/components/SelectorMiembros';
 import Modal from '@/components/Modal';
 import FormularioImportarGanttExcel from '@/components/FormularioImportarGanttExcel';
-import { EstructuraProyecto, Sprint, Feriado, Miembro } from '@/types';
+import ObservacionesModal from '@/components/ObservacionesModal';
+import { EstructuraProyecto, Sprint, Feriado, Miembro, ObservacionInventario } from '@/types';
 import { calcularTotalesDias, calcularPorcentaje } from '@/lib/planificacion';
 import { porcentaje as porcentajeCumplim, calcularSemaforo, Semaforo } from '@/lib/avanceCedula';
 import { exportarGanttComoExcel, ItemExcel } from '@/lib/exportarGanttExcel';
@@ -312,6 +313,30 @@ export default function GanttRealPage() {
   const [sidebarAbierto, setSidebarAbierto] = useState(true);
   const [exportando, setExportando] = useState(false);
   const [mostrarImportar, setMostrarImportar] = useState(false);
+  const [conteoObservaciones, setConteoObservaciones] = useState<Map<number, { total: number; abiertas: number }>>(
+    new Map()
+  );
+  const [modalObservacionesHU, setModalObservacionesHU] = useState<{ id: number; etiqueta: string } | null>(null);
+
+  // Liviano: solo recalcula los contadores de "📋 N" de cada fila HU, sin
+  // recargar todo el Gantt (se usa al abrir/cerrar el modal de una HU).
+  const cargarConteoObservaciones = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/proyectos/${proyectoId}/observaciones`);
+      const data = await res.json();
+      if (!res.ok) return;
+      const mapa = new Map<number, { total: number; abiertas: number }>();
+      for (const o of data.data as ObservacionInventario[]) {
+        const actual = mapa.get(o.historia_usuario_id) || { total: 0, abiertas: 0 };
+        actual.total++;
+        if (o.estado !== 'certificada') actual.abiertas++;
+        mapa.set(o.historia_usuario_id, actual);
+      }
+      setConteoObservaciones(mapa);
+    } catch {
+      // no bloquea el Gantt si esto falla
+    }
+  }, [proyectoId]);
 
   const cargar = useCallback(async () => {
     try {
@@ -359,7 +384,8 @@ export default function GanttRealPage() {
 
   useEffect(() => {
     cargar();
-  }, [cargar]);
+    cargarConteoObservaciones();
+  }, [cargar, cargarConteoObservaciones]);
 
   const feriadosSet = useMemo(() => new Set(feriados.map((f) => String(f.fecha).slice(0, 10))), [feriados]);
   const columnas = useMemo(() => calcularColumnas(sprints, feriadosSet), [sprints, feriadosSet]);
@@ -521,6 +547,12 @@ export default function GanttRealPage() {
                 className="px-4 py-2 rounded-lg text-sm font-semibold bg-purple-600 text-white hover:bg-purple-700"
               >
                 📋 Avance Célula
+              </a>
+              <a
+                href={`/proyectos/${proyectoId}/observaciones`}
+                className="px-4 py-2 rounded-lg text-sm font-semibold bg-white border-2 border-slate-300 text-slate-700 hover:bg-slate-50"
+              >
+                🔍 Inventario de Observaciones
               </a>
               <a
                 href={`/proyectos/${proyectoId}/gantt`}
@@ -773,6 +805,23 @@ export default function GanttRealPage() {
                                 </span>
                               )}
                             </span>
+                            {fila.tipo === 'hu' &&
+                              (() => {
+                                const conteo = conteoObservaciones.get(fila.id);
+                                return (
+                                  <button
+                                    onClick={() => setModalObservacionesHU({ id: fila.id, etiqueta: fila.etiqueta })}
+                                    title="Observaciones de certificación"
+                                    className={`flex-shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold leading-none border ${
+                                      conteo && conteo.abiertas > 0
+                                        ? 'bg-red-100 text-red-700 border-red-300'
+                                        : 'bg-gray-100 text-gray-500 border-gray-300 hover:bg-gray-200'
+                                    }`}
+                                  >
+                                    📋{conteo ? ` ${conteo.total}` : ''}
+                                  </button>
+                                );
+                              })()}
                           </div>
                           <div className="text-[10px] text-gray-400 truncate">{fila.contexto}</div>
                         </td>
@@ -866,6 +915,16 @@ export default function GanttRealPage() {
             onSuccess={cargar}
           />
         </Modal>
+      )}
+
+      {modalObservacionesHU && estructura && (
+        <ObservacionesModal
+          historiaUsuarioId={modalObservacionesHU.id}
+          huEtiqueta={modalObservacionesHU.etiqueta}
+          miembrosProyecto={estructura.miembros}
+          onClose={() => setModalObservacionesHU(null)}
+          onCambio={cargarConteoObservaciones}
+        />
       )}
     </div>
   );
