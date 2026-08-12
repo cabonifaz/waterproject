@@ -784,7 +784,7 @@ export default function GanttRealPage() {
                           style={{ width: ANCHO_ACTIVIDAD }}
                           className="sticky left-0 z-10 bg-white border px-2 py-1 pl-8 overflow-hidden"
                         >
-                          <div className="font-medium text-gray-900 flex items-center gap-1.5 min-w-0">
+                          <div className="font-medium text-gray-900 flex items-start gap-1.5 min-w-0">
                             {fila.semaforo && (
                               <span
                                 title={`${SEMAFORO_LABEL[fila.semaforo]}${
@@ -795,7 +795,7 @@ export default function GanttRealPage() {
                                 {fila.porcentajeCumplimiento != null ? `${fila.porcentajeCumplimiento}%` : '—'}
                               </span>
                             )}
-                            <span className="truncate min-w-0">
+                            <span className="min-w-0 break-words leading-tight">
                               {fila.etiqueta}
                               {fila.diasPropios != null && (
                                 <span className="font-normal text-gray-400">

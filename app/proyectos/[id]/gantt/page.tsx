@@ -677,7 +677,7 @@ export default function GanttPage() {
                             style={{ width: ANCHO_ACTIVIDAD }}
                             className="sticky left-0 z-10 bg-white border px-2 py-1 pl-8 overflow-hidden"
                           >
-                            <div className="font-medium text-gray-900 truncate">
+                            <div className="font-medium text-gray-900 break-words leading-tight">
                               {fila.etiqueta}
                               {fila.diasPropios != null && (
                                 <span className="font-normal text-gray-400">
