@@ -32,8 +32,10 @@ interface FilaGantt {
   fechaCierre?: string;
   miembros: Miembro[];
   diasPropios?: number;
+  diasPlanificadosPropios?: number;
   porcentajeCumplimiento?: number | null;
   semaforo?: Semaforo;
+  diasRestantesEstimados?: number | null;
 }
 
 type NivelDivisor = 'etapa' | 'modulo' | 'epica';
@@ -187,7 +189,7 @@ function construirItemsRender(estructura: EstructuraProyecto, indexReal: IndiceM
     const cerrada = fechaCierre != null;
     const pct = topePorcentaje(porcentajeCumplim(diasReales, diasPlanificados), cerrada);
     const semaforo = calcularSemaforo(diasPlanificados, diasReales, cerrada);
-    return { diasReales, fechaCierre, porcentajeCumplimiento: pct, semaforo };
+    return { diasReales, diasPlanificados, fechaCierre, porcentajeCumplimiento: pct, semaforo };
   };
 
   for (const etapa of estructura.etapas) {
@@ -206,8 +208,10 @@ function construirItemsRender(estructura: EstructuraProyecto, indexReal: IndiceM
           fechaCierre: calc.fechaCierre,
           miembros: t.miembros,
           diasPropios: calc.diasReales,
+          diasPlanificadosPropios: calc.diasPlanificados,
           porcentajeCumplimiento: calc.porcentajeCumplimiento,
           semaforo: calc.semaforo,
+          diasRestantesEstimados: t.dias_restantes_estimados,
         },
       });
     }
@@ -233,8 +237,10 @@ function construirItemsRender(estructura: EstructuraProyecto, indexReal: IndiceM
               fechaCierre: calc.fechaCierre,
               miembros: h.miembros,
               diasPropios: calc.diasReales,
+              diasPlanificadosPropios: calc.diasPlanificados,
               porcentajeCumplimiento: calc.porcentajeCumplimiento,
               semaforo: calc.semaforo,
+              diasRestantesEstimados: h.dias_restantes_estimados,
             },
           });
         }
@@ -326,6 +332,14 @@ export default function GanttRealPage() {
     new Map()
   );
   const [modalObservacionesHU, setModalObservacionesHU] = useState<{ id: number; etiqueta: string } | null>(null);
+  const [editandoDiasRestantes, setEditandoDiasRestantes] = useState<{
+    tipo: 'hu' | 'tareaMatriz';
+    id: number;
+    etiqueta: string;
+    valorActual: number | null;
+  } | null>(null);
+  const [inputDiasRestantes, setInputDiasRestantes] = useState('');
+  const [guardandoDiasRestantes, setGuardandoDiasRestantes] = useState(false);
 
   // Liviano: solo recalcula los contadores de "📋 N" de cada fila HU, sin
   // recargar todo el Gantt (se usa al abrir/cerrar el modal de una HU).
@@ -500,6 +514,41 @@ export default function GanttRealPage() {
           return next;
         });
       });
+  };
+
+  const abrirEdicionDiasRestantes = (fila: FilaGantt) => {
+    setEditandoDiasRestantes({
+      tipo: fila.tipo,
+      id: fila.id,
+      etiqueta: fila.etiqueta,
+      valorActual: fila.diasRestantesEstimados ?? null,
+    });
+    setInputDiasRestantes(fila.diasRestantesEstimados != null ? String(fila.diasRestantesEstimados) : '');
+  };
+
+  const handleGuardarDiasRestantes = async (dias: number | null) => {
+    if (!editandoDiasRestantes) return;
+    setGuardandoDiasRestantes(true);
+    setError(null);
+    try {
+      const endpoint =
+        editandoDiasRestantes.tipo === 'hu'
+          ? `/api/historias-usuario/${editandoDiasRestantes.id}/dias-restantes`
+          : `/api/tareas-matrices/${editandoDiasRestantes.id}/dias-restantes`;
+      const res = await fetch(endpoint, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dias }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al guardar días restantes');
+      setEditandoDiasRestantes(null);
+      await cargar();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo guardar días restantes');
+    } finally {
+      setGuardandoDiasRestantes(false);
+    }
   };
 
   const handleExportarExcel = async () => {
@@ -804,6 +853,12 @@ export default function GanttRealPage() {
                     const modoAplica = puedeEditar && fila.marcasPermitidas.includes(tipoEfectivoModoActual);
                     const porcentajePropio =
                       fila.diasPropios != null ? calcularPorcentaje(fila.diasPropios, totalGeneralReal) : null;
+                    // Proyección de atraso: solo tiene sentido mientras sigue abierta y
+                    // alguien cargó una reestimación de "cuánto falta".
+                    const atrasoProyectado =
+                      fila.fechaCierre == null && fila.diasRestantesEstimados != null && fila.diasPlanificadosPropios != null
+                        ? (fila.diasPropios ?? 0) + fila.diasRestantesEstimados - fila.diasPlanificadosPropios
+                        : null;
 
                     return (
                       <tr key={`${fila.tipo}-${fila.id}`} className="hover:bg-blue-50">
@@ -850,6 +905,25 @@ export default function GanttRealPage() {
                                   </button>
                                 );
                               })()}
+                            {fila.fechaCierre == null && (
+                              <button
+                                onClick={() => abrirEdicionDiasRestantes(fila)}
+                                title="Días restantes estimados para terminar — click para editar"
+                                className="flex-shrink-0 px-1.5 py-0.5 rounded text-[10px] font-semibold leading-none border border-slate-300 text-slate-500 hover:bg-slate-100"
+                              >
+                                ⏳{fila.diasRestantesEstimados != null ? fila.diasRestantesEstimados : '?'}
+                              </button>
+                            )}
+                            {atrasoProyectado != null && atrasoProyectado > 0 && (
+                              <span
+                                title={`Proyección: ${fila.diasPropios ?? 0} reales + ${fila.diasRestantesEstimados} restantes = ${
+                                  (fila.diasPropios ?? 0) + (fila.diasRestantesEstimados ?? 0)
+                                } días, vs. ${fila.diasPlanificadosPropios} planificados`}
+                                className="flex-shrink-0 px-1.5 py-0.5 rounded bg-red-600 text-white text-[10px] font-bold leading-none"
+                              >
+                                +{atrasoProyectado}d atraso
+                              </span>
+                            )}
                           </div>
                           <div className="text-[10px] text-gray-400 truncate">{fila.contexto}</div>
                         </td>
@@ -953,6 +1027,45 @@ export default function GanttRealPage() {
           onClose={() => setModalObservacionesHU(null)}
           onCambio={cargarConteoObservaciones}
         />
+      )}
+
+      {editandoDiasRestantes && (
+        <Modal titulo="Días restantes estimados" onClose={() => setEditandoDiasRestantes(null)} ancho="max-w-sm">
+          <div className="space-y-4">
+            <p className="text-sm text-gray-600">
+              ¿Cuántos días más estimás que falten para terminar <strong>{editandoDiasRestantes.etiqueta}</strong>? Se usa
+              para proyectar el atraso: (días reales + días restantes) vs. días planificados.
+            </p>
+            {error && <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>}
+            <input
+              type="number"
+              min={0}
+              autoFocus
+              value={inputDiasRestantes}
+              onChange={(e) => setInputDiasRestantes(e.target.value)}
+              placeholder="Días restantes"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={() => handleGuardarDiasRestantes(inputDiasRestantes.trim() === '' ? null : Number(inputDiasRestantes))}
+                disabled={guardandoDiasRestantes}
+                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-50"
+              >
+                {guardandoDiasRestantes ? 'Guardando...' : 'Guardar'}
+              </button>
+              {editandoDiasRestantes.valorActual != null && (
+                <button
+                  onClick={() => handleGuardarDiasRestantes(null)}
+                  disabled={guardandoDiasRestantes}
+                  className="px-4 py-2 border border-gray-300 text-gray-600 rounded-lg font-semibold hover:bg-gray-50 disabled:opacity-50"
+                >
+                  Borrar
+                </button>
+              )}
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );

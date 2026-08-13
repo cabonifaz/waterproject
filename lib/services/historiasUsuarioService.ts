@@ -36,3 +36,8 @@ export async function cerrarHistoriaUsuario(id: number): Promise<HistoriaUsuario
   const rows = await executeProcedure<HistoriaUsuario>('sp_cerrar_historia_usuario', [id]);
   return rows[0];
 }
+
+export async function actualizarDiasRestantes(id: number, dias: number | null): Promise<HistoriaUsuario> {
+  const rows = await executeProcedure<HistoriaUsuario>('sp_actualizar_dias_restantes_hu', [id, dias]);
+  return rows[0];
+}

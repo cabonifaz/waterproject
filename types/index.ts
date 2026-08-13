@@ -80,6 +80,7 @@ export interface HistoriaUsuario {
   prioridad: 'baja' | 'media' | 'alta';
   dias_desarrollo: number;
   dias_certificacion: number;
+  dias_restantes_estimados: number | null;
   cerrada: boolean;
   fecha_cierre?: Date;
   orden: number;
@@ -94,6 +95,7 @@ export interface TareaMatriz {
   descripcion?: string;
   responsable?: string;
   dias_estimados: number;
+  dias_restantes_estimados: number | null;
   completada: boolean;
   orden: number;
   created_at: Date;

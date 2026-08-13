@@ -25,3 +25,8 @@ export async function crearTareaMatriz(datos: {
 export async function listarTareasMatricesEtapa(etapaId: number): Promise<TareaMatriz[]> {
   return executeProcedure<TareaMatriz>('sp_listar_tareas_matrices_etapa', [etapaId]);
 }
+
+export async function actualizarDiasRestantes(id: number, dias: number | null): Promise<TareaMatriz> {
+  const rows = await executeProcedure<TareaMatriz>('sp_actualizar_dias_restantes_tarea_matriz', [id, dias]);
+  return rows[0];
+}

@@ -73,6 +73,12 @@ CREATE TABLE IF NOT EXISTS epicas (
   UNIQUE KEY uq_modulo_epica (modulo_id, nombre)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- dias_restantes_estimados: reestimación manual de "cuánto falta" mientras
+-- la HU sigue abierta (NULL = todavía no se cargó ninguna estimación). Es
+-- un número "vivo" que el responsable actualiza a medida que cambia su
+-- estimación — no se guarda historial de cambios, a diferencia de las
+-- observaciones. Sirve para proyectar el atraso: (días reales + días
+-- restantes) - días planificados.
 CREATE TABLE IF NOT EXISTS historias_usuario (
   id INT AUTO_INCREMENT PRIMARY KEY,
   epica_id INT NOT NULL,
@@ -83,6 +89,7 @@ CREATE TABLE IF NOT EXISTS historias_usuario (
   prioridad ENUM('baja', 'media', 'alta') DEFAULT 'media',
   dias_desarrollo INT NOT NULL DEFAULT 0,
   dias_certificacion INT NOT NULL DEFAULT 0,
+  dias_restantes_estimados INT DEFAULT NULL,
   cerrada BOOLEAN NOT NULL DEFAULT FALSE,
   fecha_cierre DATE,
   orden INT NOT NULL DEFAULT 0,
@@ -92,6 +99,8 @@ CREATE TABLE IF NOT EXISTS historias_usuario (
   INDEX idx_hu_epica (epica_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+ALTER TABLE historias_usuario ADD COLUMN dias_restantes_estimados INT DEFAULT NULL AFTER dias_certificacion;
+
 CREATE TABLE IF NOT EXISTS tareas_matrices (
   id INT AUTO_INCREMENT PRIMARY KEY,
   etapa_id INT NOT NULL,
@@ -99,6 +108,7 @@ CREATE TABLE IF NOT EXISTS tareas_matrices (
   descripcion LONGTEXT,
   responsable VARCHAR(255),
   dias_estimados INT NOT NULL DEFAULT 0,
+  dias_restantes_estimados INT DEFAULT NULL,
   completada BOOLEAN NOT NULL DEFAULT FALSE,
   orden INT NOT NULL DEFAULT 0,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -106,6 +116,8 @@ CREATE TABLE IF NOT EXISTS tareas_matrices (
   FOREIGN KEY (etapa_id) REFERENCES etapas(id) ON DELETE CASCADE,
   INDEX idx_tareamatriz_etapa (etapa_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+ALTER TABLE tareas_matrices ADD COLUMN dias_restantes_estimados INT DEFAULT NULL AFTER dias_estimados;
 
 -- Plantilla global de sprints: NO pertenecen a un proyecto — es una única
 -- línea de tiempo compartida por todos los proyectos (misma calendarización
@@ -535,6 +547,19 @@ BEGIN
 END$$
 DELIMITER ;
 
+-- p_dias NULL borra la estimación (vuelve a "sin definir").
+DROP PROCEDURE IF EXISTS sp_actualizar_dias_restantes_hu;
+DELIMITER $$
+CREATE PROCEDURE sp_actualizar_dias_restantes_hu (
+  IN p_id INT,
+  IN p_dias INT
+)
+BEGIN
+  UPDATE historias_usuario SET dias_restantes_estimados = p_dias WHERE id = p_id;
+  SELECT * FROM historias_usuario WHERE id = p_id;
+END$$
+DELIMITER ;
+
 -- ========================================
 -- 7. STORED PROCEDURES: TAREAS MATRICES
 -- ========================================
@@ -570,6 +595,18 @@ CREATE PROCEDURE sp_listar_tareas_matrices_etapa (
 )
 BEGIN
   SELECT * FROM tareas_matrices WHERE etapa_id = p_etapa_id ORDER BY orden, id;
+END$$
+DELIMITER ;
+
+DROP PROCEDURE IF EXISTS sp_actualizar_dias_restantes_tarea_matriz;
+DELIMITER $$
+CREATE PROCEDURE sp_actualizar_dias_restantes_tarea_matriz (
+  IN p_id INT,
+  IN p_dias INT
+)
+BEGIN
+  UPDATE tareas_matrices SET dias_restantes_estimados = p_dias WHERE id = p_id;
+  SELECT * FROM tareas_matrices WHERE id = p_id;
 END$$
 DELIMITER ;
 
