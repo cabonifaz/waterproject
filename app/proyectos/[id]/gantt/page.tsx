@@ -597,7 +597,15 @@ export default function GanttPage() {
             </div>
 
             <div className="bg-white rounded-lg shadow overflow-auto flex-1 min-h-0">
-              <table className="border-collapse text-xs">
+              <table className="table-fixed border-collapse text-xs">
+                <colgroup>
+                  <col style={{ width: ANCHO_ACTIVIDAD }} />
+                  <col style={{ width: ANCHO_H }} />
+                  <col style={{ width: ANCHO_MIEMBROS }} />
+                  {columnas.map((c) => (
+                    <col key={c.fecha} style={{ width: 44 }} />
+                  ))}
+                </colgroup>
                 <thead className="sticky top-0 z-20">
                   <tr>
                     <th
