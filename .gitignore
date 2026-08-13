@@ -20,3 +20,8 @@ yarn-error.log*
 *~
 .claude/
 *.tsbuildinfo
+
+# Planes de trabajo / datos reales de proyectos subidos para pruebas —
+# no son código de la app, no deben publicarse.
+*.xlsx
+*.xls

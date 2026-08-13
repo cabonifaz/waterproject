@@ -33,7 +33,14 @@ const COL_INICIO_DIAS = 4;
 const FILA_ENCABEZADO_DIAS = 3;
 const FILA_INICIO_DATOS = 4;
 
-type TipoFila = 'hu' | 'tareaMatriz';
+export type TipoFila = 'hu' | 'tareaMatriz';
+
+// ¡Ojo! `estructuraService` corre server-side, sin pasar por el JSON de
+// una respuesta HTTP — mysql2 devuelve las columnas DATE como objetos
+// Date reales (no strings), aunque el tipo declare `fecha: string`.
+// `String(fechaDate)` da el formato largo de Date.toString() (p. ej.
+// "Tue Aug 18 2026..."), no ISO — hay que pasar por `new Date(...)`.
+export const aFechaISO = (fecha: string | Date): string => new Date(fecha).toISOString().slice(0, 10);
 
 interface FilaExcel {
   tipo: TipoFila;
@@ -97,8 +104,10 @@ function parsearHoja(hoja: ExcelJS.Worksheet, errores: string[]): FilaExcel[] {
 
 // Sincroniza una fila: quita lo que ya no está o cambió de tipo, agrega lo
 // nuevo (días de trabajo antes que el cierre, para respetar "el cierre
-// debe quedar como el último día"), y no toca lo que ya coincide.
-async function sincronizarFila(
+// debe quedar como el último día"), y no toca lo que ya coincide. Exportada
+// para que otros importadores (ej. importPlanExternoService) reusen el
+// mismo diff seguro en vez de reimplementarlo.
+export async function sincronizarFila(
   tipo: TipoFila,
   id: number,
   actuales: Map<string, string>,
@@ -168,13 +177,6 @@ export async function importarGanttExcel(
 
   const resultado: ResultadoImportacionGantt = { marcasAgregadas: 0, marcasQuitadas: 0, marcasSinCambios: 0, errores: [] };
   const filasExcel = parsearHoja(hoja, resultado.errores);
-
-  // ¡Ojo! `estructuraService` corre server-side, sin pasar por el JSON de
-  // una respuesta HTTP — mysql2 devuelve las columnas DATE como objetos
-  // Date reales (no strings), aunque el tipo declare `fecha: string`.
-  // `String(fechaDate)` da el formato largo de Date.toString() (p. ej.
-  // "Tue Aug 18 2026..."), no ISO — hay que pasar por `new Date(...)`.
-  const aFechaISO = (fecha: string | Date): string => new Date(fecha).toISOString().slice(0, 10);
 
   const huIndex = new Map<number, Map<string, string>>();
   const tmIndex = new Map<number, Map<string, string>>();

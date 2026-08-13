@@ -11,6 +11,7 @@ import Sidebar from '@/components/Sidebar';
 import SelectorMiembros from '@/components/SelectorMiembros';
 import Modal from '@/components/Modal';
 import FormularioImportarGanttExcel from '@/components/FormularioImportarGanttExcel';
+import FormularioImportarPlanExterno from '@/components/FormularioImportarPlanExterno';
 import { EstructuraProyecto, Sprint, Feriado, Miembro } from '@/types';
 import { calcularTotalesPlanificados, calcularPorcentaje, diasPlanificadosEpica } from '@/lib/planificacion';
 import { exportarGanttComoExcel, ItemExcel } from '@/lib/exportarGanttExcel';
@@ -244,6 +245,7 @@ export default function GanttPage() {
   const [cambiandoEstado, setCambiandoEstado] = useState(false);
   const [exportando, setExportando] = useState(false);
   const [mostrarImportar, setMostrarImportar] = useState(false);
+  const [mostrarImportarPlanExterno, setMostrarImportarPlanExterno] = useState(false);
 
   const cargar = useCallback(async () => {
     try {
@@ -499,6 +501,14 @@ export default function GanttPage() {
                   className="px-4 py-2 rounded-lg text-sm font-semibold bg-white border-2 border-slate-300 text-slate-700 hover:bg-slate-50"
                 >
                   📥 Importar Excel
+                </button>
+              )}
+              {estructura && columnas.length > 0 && planificadoAbierto && (
+                <button
+                  onClick={() => setMostrarImportarPlanExterno(true)}
+                  className="px-4 py-2 rounded-lg text-sm font-semibold bg-white border-2 border-slate-300 text-slate-700 hover:bg-slate-50"
+                >
+                  📋 Importar Plan de Trabajo
                 </button>
               )}
               <a href={`/proyectos/${proyectoId}`} className="text-sm text-blue-600 hover:text-blue-800 font-semibold">
@@ -765,6 +775,19 @@ export default function GanttPage() {
         <Modal titulo="Importar Excel — Gantt Planificado" onClose={() => setMostrarImportar(false)}>
           <FormularioImportarGanttExcel
             endpoint={`/api/proyectos/${proyectoId}/gantt/importar-excel`}
+            onSuccess={cargar}
+          />
+        </Modal>
+      )}
+
+      {mostrarImportarPlanExterno && (
+        <Modal
+          titulo="Importar Plan de Trabajo (Excel externo)"
+          onClose={() => setMostrarImportarPlanExterno(false)}
+          ancho="max-w-xl"
+        >
+          <FormularioImportarPlanExterno
+            endpoint={`/api/proyectos/${proyectoId}/gantt/importar-plan-externo`}
             onSuccess={cargar}
           />
         </Modal>
