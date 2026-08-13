@@ -90,12 +90,15 @@ const FormularioImportarPlanExterno = ({ endpoint, onSuccess }: Props) => {
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>}
 
-        <input
-          type="file"
-          accept=".xlsx,.xls"
-          onChange={(e) => handleArchivo(e.target.files?.[0] || null)}
-          className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2"
-        />
+        <div>
+          <label className="block text-xs font-semibold text-gray-500 mb-1">Archivo (.xlsx) del plan de trabajo</label>
+          <input
+            type="file"
+            accept=".xlsx,.xls"
+            onChange={(e) => handleArchivo(e.target.files?.[0] || null)}
+            className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2"
+          />
+        </div>
 
         {leyendoHojas && <p className="text-xs text-gray-400">Leyendo hojas del archivo...</p>}
 

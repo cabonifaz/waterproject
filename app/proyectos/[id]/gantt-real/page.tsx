@@ -436,6 +436,16 @@ export default function GanttRealPage() {
     return grupos;
   }, [columnas]);
 
+  // Un mismo día puede ser a la vez inicio de sprint e inicio de mes — acá
+  // se resuelve la jerarquía visual: mes (más grueso) > sprint > día común,
+  // aplicada de forma continua desde el encabezado hasta cada fila.
+  const esInicioMes = useMemo(
+    () => columnas.map((c, i) => i === 0 || c.mesLabel !== columnas[i - 1].mesLabel),
+    [columnas]
+  );
+  const bordeGrupoDia = (i: number) =>
+    esInicioMes[i] ? 'border-l-4 border-l-slate-900' : columnas[i].esInicioGrupo ? 'border-l-2 border-l-slate-500' : '';
+
   const handleClickCelda = (fila: FilaGantt, fecha: string) => {
     if (!puedeEditar) return;
     const tipoEfectivo = tipoEfectivoDe(fila, modo);
@@ -700,7 +710,7 @@ export default function GanttRealPage() {
                     <th
                       rowSpan={3}
                       style={{ left: ANCHO_ACTIVIDAD + ANCHO_H, width: ANCHO_MIEMBROS }}
-                      className="sticky top-0 z-30 bg-slate-100 border text-center align-bottom"
+                      className="sticky top-0 z-30 bg-slate-100 border text-center align-bottom shadow-[4px_0_6px_-3px_rgba(15,23,42,0.25)]"
                     >
                       Miembros
                     </th>
@@ -708,7 +718,7 @@ export default function GanttRealPage() {
                       <th
                         key={`${g.label}-${i}`}
                         colSpan={g.cantidad}
-                        className="border-y border-r border-l-2 border-slate-400 px-1 py-1 text-center font-semibold bg-green-100 text-green-900"
+                        className="border-y border-r border-l-4 border-l-slate-900 px-1 py-1 text-center font-semibold bg-green-100 text-green-900"
                       >
                         {g.label}
                       </th>
@@ -719,25 +729,23 @@ export default function GanttRealPage() {
                       <th
                         key={`${g.label}-${i}`}
                         colSpan={g.cantidad}
-                        className="border-y border-r border-l-2 border-slate-400 px-1 py-1 text-center font-semibold bg-green-100 text-green-900"
+                        className="border-y border-r border-l-2 border-l-slate-500 px-1 py-1 text-center font-semibold bg-green-100 text-green-900"
                       >
                         {g.label}
                       </th>
                     ))}
                   </tr>
                   <tr>
-                    {columnas.map((c) => (
+                    {columnas.map((c, i) => (
                       <th
                         key={c.fecha}
                         title={c.esHoy ? `${c.fecha} — HOY, corte de Avance Célula` : c.fecha}
-                        className={`border-2 w-11 h-8 text-[11px] font-semibold tabular-nums ${
-                          c.esInicioGrupo ? 'border-l-4 border-l-slate-800' : ''
-                        } ${
+                        className={`border w-11 h-8 text-[11px] font-semibold tabular-nums ${bordeGrupoDia(i)} ${
                           c.esHoy
                             ? 'border-purple-700 bg-purple-600 text-white'
                             : c.esFeriado
-                            ? 'border-slate-600 bg-orange-200 text-orange-800'
-                            : 'border-slate-600 bg-slate-50 text-gray-700'
+                            ? 'border-slate-300 bg-orange-200 text-orange-800'
+                            : 'border-slate-300 bg-slate-50 text-gray-700'
                         }`}
                       >
                         {c.esHoy ? 'HOY' : `${c.diaSemana}${String(c.diaMes).padStart(2, '0')}`}
@@ -840,7 +848,7 @@ export default function GanttRealPage() {
                         </td>
                         <td
                           style={{ left: ANCHO_ACTIVIDAD + ANCHO_H, width: ANCHO_MIEMBROS }}
-                          className="sticky z-10 bg-white border text-center px-1"
+                          className="sticky z-10 bg-white border text-center px-1 shadow-[4px_0_6px_-3px_rgba(15,23,42,0.25)]"
                         >
                           <SelectorMiembros
                             endpoint={
@@ -853,7 +861,7 @@ export default function GanttRealPage() {
                             onRefrescar={cargar}
                           />
                         </td>
-                        {columnas.map((c) => {
+                        {columnas.map((c, i) => {
                           const marca = marcas.get(claveMarca(fila.tipo, fila.id, c.fecha));
                           const marcaPlan = marcasPlanificadas.get(claveMarca(fila.tipo, fila.id, c.fecha));
                           return (
@@ -869,9 +877,9 @@ export default function GanttRealPage() {
                                   ? `Planificado: ${marcaPlan}`
                                   : undefined
                               }
-                              className={`border-2 border-slate-500 w-11 h-8 text-center ${
-                                c.esInicioGrupo ? 'border-l-4 border-l-slate-800' : ''
-                              } ${c.esHoy ? 'border-l-4 border-r-4 border-l-purple-600 border-r-purple-600' : ''} ${
+                              className={`border border-slate-300 w-11 h-8 text-center ${bordeGrupoDia(i)} ${
+                                c.esHoy ? 'border-l-4 border-r-4 border-l-purple-600 border-r-purple-600' : ''
+                              } ${
                                 modoAplica ? 'cursor-pointer hover:opacity-70' : 'cursor-not-allowed'
                               } ${marcaPlan ? anillosPlanificado[marcaPlan] : ''} ${
                                 !modoAplica

@@ -329,6 +329,16 @@ export default function GanttPage() {
     return grupos;
   }, [columnas]);
 
+  // Un mismo día puede ser a la vez inicio de sprint e inicio de mes — acá
+  // se resuelve la jerarquía visual: mes (más grueso) > sprint > día común,
+  // aplicada de forma continua desde el encabezado hasta cada fila.
+  const esInicioMes = useMemo(
+    () => columnas.map((c, i) => i === 0 || c.mesLabel !== columnas[i - 1].mesLabel),
+    [columnas]
+  );
+  const bordeGrupoDia = (i: number) =>
+    esInicioMes[i] ? 'border-l-4 border-l-slate-900' : columnas[i].esInicioGrupo ? 'border-l-2 border-l-slate-500' : '';
+
   const handleClickCelda = (fila: FilaGantt, fecha: string) => {
     if (!planificadoAbierto) return;
     const tipoEfectivo = tipoEfectivoDe(fila, modo);
@@ -608,7 +618,7 @@ export default function GanttPage() {
                     <th
                       rowSpan={3}
                       style={{ left: ANCHO_ACTIVIDAD + ANCHO_H, width: ANCHO_MIEMBROS }}
-                      className="sticky top-0 z-30 bg-slate-100 border text-center align-bottom"
+                      className="sticky top-0 z-30 bg-slate-100 border text-center align-bottom shadow-[4px_0_6px_-3px_rgba(15,23,42,0.25)]"
                     >
                       Miembros
                     </th>
@@ -616,7 +626,7 @@ export default function GanttPage() {
                       <th
                         key={`${g.label}-${i}`}
                         colSpan={g.cantidad}
-                        className="border-y border-r border-l-2 border-slate-400 px-1 py-1 text-center font-semibold bg-green-100 text-green-900"
+                        className="border-y border-r border-l-4 border-l-slate-900 px-1 py-1 text-center font-semibold bg-green-100 text-green-900"
                       >
                         {g.label}
                       </th>
@@ -627,20 +637,20 @@ export default function GanttPage() {
                       <th
                         key={`${g.label}-${i}`}
                         colSpan={g.cantidad}
-                        className="border-y border-r border-l-2 border-slate-400 px-1 py-1 text-center font-semibold bg-green-100 text-green-900"
+                        className="border-y border-r border-l-2 border-l-slate-500 px-1 py-1 text-center font-semibold bg-green-100 text-green-900"
                       >
                         {g.label}
                       </th>
                     ))}
                   </tr>
                   <tr>
-                    {columnas.map((c) => (
+                    {columnas.map((c, i) => (
                       <th
                         key={c.fecha}
                         title={c.fecha}
-                        className={`border-2 border-slate-600 w-11 h-8 text-[11px] font-semibold tabular-nums ${
-                          c.esInicioGrupo ? 'border-l-4 border-l-slate-800' : ''
-                        } ${c.esFeriado ? 'bg-orange-200 text-orange-800' : 'bg-slate-50 text-gray-700'}`}
+                        className={`border border-slate-300 w-11 h-8 text-[11px] font-semibold tabular-nums ${bordeGrupoDia(
+                          i
+                        )} ${c.esFeriado ? 'bg-orange-200 text-orange-800' : 'bg-slate-50 text-gray-700'}`}
                       >
                         {c.diaSemana}
                         {String(c.diaMes).padStart(2, '0')}
@@ -714,7 +724,7 @@ export default function GanttPage() {
                           </td>
                           <td
                             style={{ left: ANCHO_ACTIVIDAD + ANCHO_H, width: ANCHO_MIEMBROS }}
-                            className="sticky z-10 bg-white border text-center px-1"
+                            className="sticky z-10 bg-white border text-center px-1 shadow-[4px_0_6px_-3px_rgba(15,23,42,0.25)]"
                           >
                             <SelectorMiembros
                               endpoint={
@@ -727,7 +737,7 @@ export default function GanttPage() {
                               onRefrescar={cargar}
                             />
                           </td>
-                          {columnas.map((c) => {
+                          {columnas.map((c, i) => {
                             const marca = marcas.get(claveMarca(fila.tipo, fila.id, c.fecha));
                             return (
                               <td
@@ -740,11 +750,9 @@ export default function GanttPage() {
                                     ? 'El modo activo no aplica a esta actividad'
                                     : undefined
                                 }
-                                className={`border-2 border-slate-500 w-11 h-8 text-center ${
-                                  c.esInicioGrupo ? 'border-l-4 border-l-slate-800' : ''
-                                } ${modoAplica ? 'cursor-pointer hover:opacity-70' : 'cursor-not-allowed'} ${
-                                  !modoAplica ? 'bg-gray-100' : c.esFeriado ? 'bg-orange-100' : 'bg-white'
-                                }`}
+                                className={`border border-slate-300 w-11 h-8 text-center ${bordeGrupoDia(i)} ${
+                                  modoAplica ? 'cursor-pointer hover:opacity-70' : 'cursor-not-allowed'
+                                } ${!modoAplica ? 'bg-gray-100' : c.esFeriado ? 'bg-orange-100' : 'bg-white'}`}
                               >
                                 {marca && (
                                   <div className={`w-full h-full flex items-center justify-center ${coloresMarca[marca]}`}>
