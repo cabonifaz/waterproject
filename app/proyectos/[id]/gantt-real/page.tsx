@@ -9,7 +9,7 @@
 
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, CSSProperties } from 'react';
 import { useParams } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import SelectorMiembros from '@/components/SelectorMiembros';
@@ -47,6 +47,13 @@ type ItemRender =
 const ANCHO_ACTIVIDAD = 220;
 const ANCHO_H = 36;
 const ANCHO_MIEMBROS = 96;
+
+// Fuerza que cada celda "sticky" tenga su propia capa de composición —
+// evita el glitch típico de position:sticky en tablas grandes (el
+// navegador a veces no repinta bien la celda fija durante el scroll y se
+// alcanza a ver el contenido de atrás por encima, sobre todo en la
+// esquina fija que combina sticky de arriba Y de la izquierda a la vez).
+const CAPA_FIJA: CSSProperties = { transform: 'translateZ(0)', backfaceVisibility: 'hidden' };
 
 function formatFechaCorta(fecha: string): string {
   return new Date(fecha.slice(0, 10) + 'T00:00:00').toLocaleDateString('es', {
@@ -801,7 +808,7 @@ export default function GanttRealPage() {
                   <tr>
                     <th
                       rowSpan={3}
-                      style={{ left: 0, width: ANCHO_H }}
+                      style={{ ...CAPA_FIJA, left: 0, width: ANCHO_H }}
                       className="sticky top-0 left-0 z-30 bg-slate-100 border text-center align-bottom"
                       title="Fecha real de cierre"
                     >
@@ -809,14 +816,14 @@ export default function GanttRealPage() {
                     </th>
                     <th
                       rowSpan={3}
-                      style={{ left: ANCHO_H, width: ANCHO_ACTIVIDAD }}
+                      style={{ ...CAPA_FIJA, left: ANCHO_H, width: ANCHO_ACTIVIDAD }}
                       className="sticky top-0 z-30 bg-slate-100 border px-2 py-1 text-left align-bottom"
                     >
                       Actividad
                     </th>
                     <th
                       rowSpan={3}
-                      style={{ left: ANCHO_H + ANCHO_ACTIVIDAD, width: ANCHO_MIEMBROS }}
+                      style={{ ...CAPA_FIJA, left: ANCHO_H + ANCHO_ACTIVIDAD, width: ANCHO_MIEMBROS }}
                       className="sticky top-0 z-30 bg-slate-100 border text-center align-bottom shadow-[4px_0_6px_-3px_rgba(15,23,42,0.25)]"
                     >
                       Miembros
@@ -870,6 +877,7 @@ export default function GanttRealPage() {
                         <tr key={item.key}>
                           <td
                             colSpan={3}
+                            style={CAPA_FIJA}
                             className={`sticky left-0 z-10 border px-2 py-1.5 h-7 font-semibold text-[11px] whitespace-nowrap ${estilo.fila} ${estilo.padding}`}
                           >
                             {item.label}
@@ -901,7 +909,7 @@ export default function GanttRealPage() {
                     return (
                       <tr key={`${fila.tipo}-${fila.id}`} className="hover:bg-blue-50">
                         <td
-                          style={{ left: 0, width: ANCHO_H }}
+                          style={{ ...CAPA_FIJA, left: 0, width: ANCHO_H }}
                           className="sticky z-10 bg-white border text-center"
                         >
                           {fila.fechaCierre && (
@@ -915,7 +923,7 @@ export default function GanttRealPage() {
                         </td>
                         <td
                           title={fila.etiqueta}
-                          style={{ left: ANCHO_H, width: ANCHO_ACTIVIDAD }}
+                          style={{ ...CAPA_FIJA, left: ANCHO_H, width: ANCHO_ACTIVIDAD }}
                           className="sticky z-10 bg-white border px-2 py-1 pl-3 overflow-hidden"
                         >
                           <div className="font-medium text-gray-900 flex items-start gap-1.5 min-w-0">
@@ -981,7 +989,7 @@ export default function GanttRealPage() {
                           </div>
                         </td>
                         <td
-                          style={{ left: ANCHO_H + ANCHO_ACTIVIDAD, width: ANCHO_MIEMBROS }}
+                          style={{ ...CAPA_FIJA, left: ANCHO_H + ANCHO_ACTIVIDAD, width: ANCHO_MIEMBROS }}
                           className="sticky z-10 bg-white border text-center px-1 shadow-[4px_0_6px_-3px_rgba(15,23,42,0.25)]"
                         >
                           <SelectorMiembros
