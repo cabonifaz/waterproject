@@ -340,6 +340,7 @@ export default function GanttRealPage() {
   } | null>(null);
   const [inputDiasRestantes, setInputDiasRestantes] = useState('');
   const [guardandoDiasRestantes, setGuardandoDiasRestantes] = useState(false);
+  const [filtroHito, setFiltroHito] = useState<'todas' | 'con_hito' | 'sin_hito'>('todas');
 
   // Liviano: solo recalcula los contadores de "📋 N" de cada fila HU, sin
   // recargar todo el Gantt (se usa al abrir/cerrar el modal de una HU).
@@ -419,6 +420,30 @@ export default function GanttRealPage() {
     () => (estructura ? construirItemsRender(estructura, indexReal, indexPlan) : []),
     [estructura, indexReal, indexPlan]
   );
+
+  // "Con hito" = ya tiene marca de cierre real. "Sin hito" = todavía
+  // pendiente de completar. Los divisores (etapa/módulo/épica) solo se
+  // muestran si les queda al menos una fila visible después del filtro —
+  // van "pendientes" hasta que aparece la primera fila que matchea.
+  const itemsFiltrados = useMemo(() => {
+    if (filtroHito === 'todas') return itemsRender;
+    const resultado: ItemRender[] = [];
+    let pendientes: Extract<ItemRender, { kind: 'divisor' }>[] = [];
+    for (const item of itemsRender) {
+      if (item.kind === 'divisor') {
+        if (item.nivel === 'etapa') pendientes = [item];
+        else if (item.nivel === 'modulo') pendientes = [...pendientes.filter((p) => p.nivel === 'etapa'), item];
+        else pendientes = [...pendientes.filter((p) => p.nivel !== 'epica'), item];
+        continue;
+      }
+      const coincide = filtroHito === 'con_hito' ? item.fila.fechaCierre != null : item.fila.fechaCierre == null;
+      if (coincide) {
+        resultado.push(...pendientes, item);
+        pendientes = [];
+      }
+    }
+    return resultado;
+  }, [itemsRender, filtroHito]);
   // Totales calculados directamente del mapa de marcas en vivo (no de
   // `estructura`) para que se actualicen al instante al marcar una celda,
   // sin necesitar recargar la página.
@@ -722,6 +747,17 @@ export default function GanttRealPage() {
                     {m.label}
                   </button>
                 ))}
+                <span className="text-sm text-gray-500 ml-3 mr-1">Mostrar:</span>
+                <select
+                  value={filtroHito}
+                  onChange={(e) => setFiltroHito(e.target.value as typeof filtroHito)}
+                  className="text-sm px-3 py-2 border border-gray-300 rounded-lg bg-white"
+                  title="Filtrar por si la actividad ya tiene marca de cierre (hito) real"
+                >
+                  <option value="todas">Todas</option>
+                  <option value="sin_hito">Sin hito (pendientes)</option>
+                  <option value="con_hito">Con hito (cerradas)</option>
+                </select>
               </div>
               <div className="flex items-center gap-4 text-xs text-gray-500">
                 <span
@@ -745,6 +781,8 @@ export default function GanttRealPage() {
                 </span>
                 <span>
                   {columnas.length} día(s) · {filas.length} actividad(es)
+                  {filtroHito !== 'todas' &&
+                    ` (${itemsFiltrados.filter((i) => i.kind === 'fila').length} visibles con el filtro)`}
                 </span>
               </div>
             </div>
@@ -752,8 +790,8 @@ export default function GanttRealPage() {
             <div className="bg-white rounded-lg shadow overflow-auto flex-1 min-h-0">
               <table className="table-fixed border-collapse text-xs">
                 <colgroup>
-                  <col style={{ width: ANCHO_ACTIVIDAD }} />
                   <col style={{ width: ANCHO_H }} />
+                  <col style={{ width: ANCHO_ACTIVIDAD }} />
                   <col style={{ width: ANCHO_MIEMBROS }} />
                   {columnas.map((c) => (
                     <col key={c.fecha} style={{ width: 44 }} />
@@ -763,22 +801,22 @@ export default function GanttRealPage() {
                   <tr>
                     <th
                       rowSpan={3}
-                      style={{ width: ANCHO_ACTIVIDAD }}
-                      className="sticky top-0 left-0 z-30 bg-slate-100 border px-2 py-1 text-left align-bottom"
-                    >
-                      Actividad
-                    </th>
-                    <th
-                      rowSpan={3}
-                      style={{ left: ANCHO_ACTIVIDAD, width: ANCHO_H }}
-                      className="sticky top-0 z-30 bg-slate-100 border text-center align-bottom"
+                      style={{ left: 0, width: ANCHO_H }}
+                      className="sticky top-0 left-0 z-30 bg-slate-100 border text-center align-bottom"
                       title="Fecha real de cierre"
                     >
                       H
                     </th>
                     <th
                       rowSpan={3}
-                      style={{ left: ANCHO_ACTIVIDAD + ANCHO_H, width: ANCHO_MIEMBROS }}
+                      style={{ left: ANCHO_H, width: ANCHO_ACTIVIDAD }}
+                      className="sticky top-0 z-30 bg-slate-100 border px-2 py-1 text-left align-bottom"
+                    >
+                      Actividad
+                    </th>
+                    <th
+                      rowSpan={3}
+                      style={{ left: ANCHO_H + ANCHO_ACTIVIDAD, width: ANCHO_MIEMBROS }}
                       className="sticky top-0 z-30 bg-slate-100 border text-center align-bottom shadow-[4px_0_6px_-3px_rgba(15,23,42,0.25)]"
                     >
                       Miembros
@@ -823,7 +861,7 @@ export default function GanttRealPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {itemsRender.map((item) => {
+                  {itemsFiltrados.map((item) => {
                     if (item.kind === 'divisor') {
                       const estilo = ESTILOS_DIVISOR[item.nivel];
                       const porcentajeGrupo =
@@ -863,9 +901,22 @@ export default function GanttRealPage() {
                     return (
                       <tr key={`${fila.tipo}-${fila.id}`} className="hover:bg-blue-50">
                         <td
+                          style={{ left: 0, width: ANCHO_H }}
+                          className="sticky z-10 bg-white border text-center"
+                        >
+                          {fila.fechaCierre && (
+                            <span
+                              title={`Fecha real de cierre: ${formatFechaCorta(fila.fechaCierre)}`}
+                              className="inline-flex items-center justify-center w-5 h-5 bg-blue-700 text-white text-[10px] font-bold rounded cursor-help"
+                            >
+                              H
+                            </span>
+                          )}
+                        </td>
+                        <td
                           title={fila.etiqueta}
-                          style={{ width: ANCHO_ACTIVIDAD }}
-                          className="sticky left-0 z-10 bg-white border px-2 py-1 pl-8 overflow-hidden"
+                          style={{ left: ANCHO_H, width: ANCHO_ACTIVIDAD }}
+                          className="sticky z-10 bg-white border px-2 py-1 pl-3 overflow-hidden"
                         >
                           <div className="font-medium text-gray-900 flex items-start gap-1.5 min-w-0">
                             {fila.semaforo && (
@@ -888,6 +939,9 @@ export default function GanttRealPage() {
                                 </span>
                               )}
                             </span>
+                          </div>
+                          <div className="text-[10px] text-gray-400 truncate">{fila.contexto}</div>
+                          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                             {fila.tipo === 'hu' &&
                               (() => {
                                 const conteo = conteoObservaciones.get(fila.id);
@@ -925,23 +979,9 @@ export default function GanttRealPage() {
                               </span>
                             )}
                           </div>
-                          <div className="text-[10px] text-gray-400 truncate">{fila.contexto}</div>
                         </td>
                         <td
-                          style={{ left: ANCHO_ACTIVIDAD, width: ANCHO_H }}
-                          className="sticky z-10 bg-white border text-center"
-                        >
-                          {fila.fechaCierre && (
-                            <span
-                              title={`Fecha real de cierre: ${formatFechaCorta(fila.fechaCierre)}`}
-                              className="inline-flex items-center justify-center w-5 h-5 bg-blue-700 text-white text-[10px] font-bold rounded cursor-help"
-                            >
-                              H
-                            </span>
-                          )}
-                        </td>
-                        <td
-                          style={{ left: ANCHO_ACTIVIDAD + ANCHO_H, width: ANCHO_MIEMBROS }}
+                          style={{ left: ANCHO_H + ANCHO_ACTIVIDAD, width: ANCHO_MIEMBROS }}
                           className="sticky z-10 bg-white border text-center px-1 shadow-[4px_0_6px_-3px_rgba(15,23,42,0.25)]"
                         >
                           <SelectorMiembros
@@ -1000,6 +1040,14 @@ export default function GanttRealPage() {
                     <tr>
                       <td colSpan={columnas.length + 3} className="text-center text-gray-400 py-8">
                         Sin actividades todavía — agregá tareas matrices o historias de usuario.
+                      </td>
+                    </tr>
+                  )}
+                  {filas.length > 0 && itemsFiltrados.filter((i) => i.kind === 'fila').length === 0 && (
+                    <tr>
+                      <td colSpan={columnas.length + 3} className="text-center text-gray-400 py-8">
+                        Ninguna actividad coincide con el filtro &quot;
+                        {filtroHito === 'con_hito' ? 'Con hito (cerradas)' : 'Sin hito (pendientes)'}&quot;.
                       </td>
                     </tr>
                   )}
