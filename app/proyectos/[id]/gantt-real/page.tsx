@@ -18,7 +18,7 @@ import FormularioImportarGanttExcel from '@/components/FormularioImportarGanttEx
 import ObservacionesModal from '@/components/ObservacionesModal';
 import { EstructuraProyecto, Sprint, Feriado, Miembro, ObservacionInventario } from '@/types';
 import { calcularTotalesDias, calcularPorcentaje } from '@/lib/planificacion';
-import { porcentaje as porcentajeCumplim, calcularSemaforo, Semaforo } from '@/lib/avanceCedula';
+import { porcentaje as porcentajeCumplim, calcularSemaforo, topePorcentaje, Semaforo } from '@/lib/avanceCedula';
 import { exportarGanttComoExcel, ItemExcel } from '@/lib/exportarGanttExcel';
 
 type Modo = 'desarrollo' | 'certificacion' | 'cierre';
@@ -184,8 +184,9 @@ function construirItemsRender(estructura: EstructuraProyecto, indexReal: IndiceM
     const diasReales = indexReal.conteos.get(filaKey) ?? 0;
     const diasPlanificados = indexPlan.conteos.get(filaKey) ?? 0;
     const fechaCierre = indexReal.cierres.get(filaKey);
-    const pct = porcentajeCumplim(diasReales, diasPlanificados);
-    const semaforo = calcularSemaforo(diasPlanificados, diasReales, fechaCierre != null);
+    const cerrada = fechaCierre != null;
+    const pct = topePorcentaje(porcentajeCumplim(diasReales, diasPlanificados), cerrada);
+    const semaforo = calcularSemaforo(diasPlanificados, diasReales, cerrada);
     return { diasReales, fechaCierre, porcentajeCumplimiento: pct, semaforo };
   };
 

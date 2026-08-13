@@ -143,6 +143,18 @@ export function calcularSemaforo(diasPlanificados: number, diasReales: number, c
   return 'rojo';
 }
 
+// Mientras una actividad sigue abierta, un % basado en días reales todavía
+// no es un "% de avance" real (solo dice cuánto presupuesto de días se
+// gastó, y puede pasar de 100% sin que esté ni cerca de terminar) — así
+// que se topea a 100% para no mostrar un número que se lee como "más que
+// terminado" para algo que sigue en curso. El atraso real se sigue viendo
+// en el semáforo (que sí usa el consumo real, sin topear) y, una vez que
+// la actividad cierra, el % ya refleja el valor final tal cual (sin tope).
+export function topePorcentaje(valor: number | null, cerrada: boolean): number | null {
+  if (valor == null || cerrada) return valor;
+  return Math.min(valor, 100);
+}
+
 export function calcularFilasConPorcentajes(filas: FilaAvanceCedula[]): {
   filas: FilaAvanceCalculada[];
   totales: FilaAvanceCalculada;
@@ -162,10 +174,10 @@ export function calcularFilasConPorcentajes(filas: FilaAvanceCedula[]): {
       ...f,
       porcentajeFase: porcentaje(f.diasTotales, totalDiasTotales),
       porcentajePlanificado: porcentaje(f.diasPlanificados, f.diasTotales),
-      porcentajeReal: porcentaje(f.diasReales, f.diasTotales),
-      porcentajeCumplimiento: porcentaje(f.diasReales, f.diasPlanificados),
+      porcentajeReal: topePorcentaje(porcentaje(f.diasReales, f.diasTotales), cerrada),
+      porcentajeCumplimiento: topePorcentaje(porcentaje(f.diasReales, f.diasPlanificados), cerrada),
       porcentajeAvancePlanificado: porcentaje(f.diasPlanificados, totalDiasTotales),
-      porcentajeAvanceReal: porcentaje(f.diasReales, totalDiasTotales),
+      porcentajeAvanceReal: topePorcentaje(porcentaje(f.diasReales, totalDiasTotales), cerrada),
       semaforo: calcularSemaforo(f.diasPlanificados, f.diasReales, cerrada),
     };
   };

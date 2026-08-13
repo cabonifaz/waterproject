@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import * as proyectosService from '@/lib/services/proyectosService';
 import * as plantillaService from '@/lib/services/plantillaService';
 import * as cumplimientoService from '@/lib/services/cumplimientoService';
-import { porcentaje, calcularSemaforo } from '@/lib/avanceCedula';
+import { porcentaje, calcularSemaforo, topePorcentaje } from '@/lib/avanceCedula';
 
 export async function GET() {
   try {
@@ -24,7 +24,7 @@ export async function GET() {
       const cerrado = totalActividades > 0 && actividadesCerradas === totalActividades;
       return {
         ...p,
-        porcentajeCumplimiento: porcentaje(diasReales, diasPlanificados),
+        porcentajeCumplimiento: topePorcentaje(porcentaje(diasReales, diasPlanificados), cerrado),
         semaforo: calcularSemaforo(diasPlanificados, diasReales, cerrado),
       };
     });
