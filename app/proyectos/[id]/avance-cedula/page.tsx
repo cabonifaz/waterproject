@@ -54,6 +54,8 @@ function detalleAFilas(detalle: DetalleCorteAvance[]): FilaAvanceCedula[] {
     diasTotales: d.dias_totales,
     diasPlanificados: d.dias_planificados,
     diasReales: d.dias_reales,
+    totalActividades: d.total_actividades,
+    actividadesCerradas: d.actividades_cerradas,
   }));
 }
 
@@ -340,6 +342,22 @@ export default function AvanceCedulaPage() {
 
                 <div className="w-56 flex-shrink-0 bg-white rounded-lg shadow p-4 h-fit">
                   <h3 className="font-bold text-gray-900 text-sm mb-3">Desviación de Cronograma</h3>
+                  <p className="text-[11px] font-semibold text-gray-600 mb-1">Si queda algo abierto:</p>
+                  <div className="space-y-2 text-xs mb-3">
+                    <div className="flex items-center gap-2">
+                      <span className="w-4 h-4 rounded bg-green-500 inline-block flex-shrink-0" />
+                      <span>Dentro de lo planificado (&lt; 80%)</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="w-4 h-4 rounded bg-yellow-400 inline-block flex-shrink-0" />
+                      <span>Cerca del límite (80%–100%)</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="w-4 h-4 rounded bg-red-500 inline-block flex-shrink-0" />
+                      <span>Ya superó lo planificado sin cerrar</span>
+                    </div>
+                  </div>
+                  <p className="text-[11px] font-semibold text-gray-600 mb-1">Si todo está cerrado:</p>
                   <div className="space-y-2 text-xs">
                     <div className="flex items-center gap-2">
                       <span className="w-4 h-4 rounded bg-green-500 inline-block flex-shrink-0" />
@@ -353,13 +371,13 @@ export default function AvanceCedulaPage() {
                       <span className="w-4 h-4 rounded bg-red-500 inline-block flex-shrink-0" />
                       <span>Desviación &gt; 8%</span>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className="w-4 h-4 rounded bg-gray-700 inline-block flex-shrink-0" />
-                      <span>Todavía no arrancó</span>
-                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs mt-3">
+                    <span className="w-4 h-4 rounded bg-gray-700 inline-block flex-shrink-0" />
+                    <span>Todavía no arrancó</span>
                   </div>
                   <p className="text-[11px] text-gray-400 mt-3">
-                    Desviación = 100% − % Cumplimiento (Días Reales / Días Planificados).
+                    Desviación = |Días Reales / Días Planificados − 100%|.
                   </p>
                 </div>
               </div>

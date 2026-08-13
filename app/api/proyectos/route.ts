@@ -19,11 +19,13 @@ export async function GET() {
       const r = resumenPorId.get(p.id);
       const diasPlanificados = r?.dias_planificados || 0;
       const diasReales = r?.dias_reales || 0;
-      const porcentajeCumplimiento = porcentaje(diasReales, diasPlanificados);
+      const totalActividades = r?.total_actividades || 0;
+      const actividadesCerradas = r?.actividades_cerradas || 0;
+      const cerrado = totalActividades > 0 && actividadesCerradas === totalActividades;
       return {
         ...p,
-        porcentajeCumplimiento,
-        semaforo: calcularSemaforo(diasPlanificados, porcentajeCumplimiento),
+        porcentajeCumplimiento: porcentaje(diasReales, diasPlanificados),
+        semaforo: calcularSemaforo(diasPlanificados, diasReales, cerrado),
       };
     });
 

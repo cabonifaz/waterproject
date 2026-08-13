@@ -176,6 +176,8 @@ export interface DetalleCorteAvance {
   dias_totales: number;
   dias_planificados: number;
   dias_reales: number;
+  total_actividades: number;
+  actividades_cerradas: number;
 }
 
 export interface FilaAvanceCedula {
@@ -187,6 +189,11 @@ export interface FilaAvanceCedula {
   diasTotales: number;
   diasPlanificados: number;
   diasReales: number;
+  // Cuántas HU/tareas matrices hay bajo esta fila y cuántas de esas ya
+  // tienen marca de cierre en el real — de acá sale si la fila está
+  // "cerrada" (todas cerradas) o "en curso" (ver calcularSemaforo).
+  totalActividades: number;
+  actividadesCerradas: number;
 }
 
 // ========================================

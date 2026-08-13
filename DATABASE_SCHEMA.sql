@@ -251,6 +251,12 @@ CREATE TABLE IF NOT EXISTS cortes_avance (
 -- Una fila por etapa/épica/tarea matriz mostrada en el reporte, con los
 -- tres conteos de días que ya se ven en el Gantt: baseline (Días
 -- Totales), planificado actual y real a la fecha del corte.
+-- total_actividades/actividades_cerradas: cuántas HU/tareas matrices hay
+-- bajo esta fila y cuántas de esas ya tienen marca de cierre en el REAL —
+-- es lo que permite distinguir "todavía en curso" (el semáforo mide si ya
+-- se pasó del presupuesto de días sin terminar) de "ya cerrado" (el
+-- semáforo mide qué tan lejos terminó del estimado). Ver calcularSemaforo
+-- en lib/avanceCedula.ts.
 CREATE TABLE IF NOT EXISTS cortes_avance_detalle (
   id INT AUTO_INCREMENT PRIMARY KEY,
   corte_id INT NOT NULL,
@@ -262,8 +268,13 @@ CREATE TABLE IF NOT EXISTS cortes_avance_detalle (
   dias_totales INT NOT NULL DEFAULT 0,
   dias_planificados INT NOT NULL DEFAULT 0,
   dias_reales INT NOT NULL DEFAULT 0,
+  total_actividades INT NOT NULL DEFAULT 0,
+  actividades_cerradas INT NOT NULL DEFAULT 0,
   FOREIGN KEY (corte_id) REFERENCES cortes_avance(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+ALTER TABLE cortes_avance_detalle ADD COLUMN total_actividades INT NOT NULL DEFAULT 0 AFTER dias_reales;
+ALTER TABLE cortes_avance_detalle ADD COLUMN actividades_cerradas INT NOT NULL DEFAULT 0 AFTER total_actividades;
 
 -- ========================================
 -- 2. STORED PROCEDURES: PROYECTOS
@@ -1204,13 +1215,15 @@ CREATE PROCEDURE sp_agregar_detalle_corte_avance (
   IN p_orden INT,
   IN p_dias_totales INT,
   IN p_dias_planificados INT,
-  IN p_dias_reales INT
+  IN p_dias_reales INT,
+  IN p_total_actividades INT,
+  IN p_actividades_cerradas INT
 )
 BEGIN
   INSERT INTO cortes_avance_detalle
-    (corte_id, tipo, referencia_id, etapa_nombre, nombre, orden, dias_totales, dias_planificados, dias_reales)
+    (corte_id, tipo, referencia_id, etapa_nombre, nombre, orden, dias_totales, dias_planificados, dias_reales, total_actividades, actividades_cerradas)
   VALUES
-    (p_corte_id, p_tipo, p_referencia_id, p_etapa_nombre, p_nombre, p_orden, p_dias_totales, p_dias_planificados, p_dias_reales);
+    (p_corte_id, p_tipo, p_referencia_id, p_etapa_nombre, p_nombre, p_orden, p_dias_totales, p_dias_planificados, p_dias_reales, p_total_actividades, p_actividades_cerradas);
 END$$
 DELIMITER ;
 
@@ -1254,6 +1267,10 @@ DELIMITER ;
 -- Resumen liviano para la lista de proyectos: días planificados y reales
 -- de TODOS los proyectos en una sola pasada (evita N+1 al listar). No usa
 -- el baseline — el % Cumplimiento (real/planificado) no lo necesita.
+-- total_actividades/actividades_cerradas: para poder calcular el semáforo
+-- distinguiendo "todavía en curso" de "ya cerrado" (ver calcularSemaforo
+-- en lib/avanceCedula.ts) — sin esto, una actividad que ya se pasó de
+-- días sin cerrar no se puede diferenciar de una que va bien encaminada.
 DROP PROCEDURE IF EXISTS sp_resumen_cumplimiento_proyectos;
 DELIMITER $$
 CREATE PROCEDURE sp_resumen_cumplimiento_proyectos ()
@@ -1261,7 +1278,9 @@ BEGIN
   SELECT
     p.id AS proyecto_id,
     COALESCE(planif_hu.dias, 0) + COALESCE(planif_tm.dias, 0) AS dias_planificados,
-    COALESCE(real_hu.dias, 0) + COALESCE(real_tm.dias, 0) AS dias_reales
+    COALESCE(real_hu.dias, 0) + COALESCE(real_tm.dias, 0) AS dias_reales,
+    COALESCE(total_hu.total, 0) + COALESCE(total_tm.total, 0) AS total_actividades,
+    COALESCE(cerradas_hu.cerradas, 0) + COALESCE(cerradas_tm.cerradas, 0) AS actividades_cerradas
   FROM proyectos p
   LEFT JOIN (
     SELECT et.proyecto_id, COUNT(*) AS dias
@@ -1298,7 +1317,49 @@ BEGIN
     JOIN etapas et ON t.etapa_id = et.id
     WHERE d.tipo_marca <> 'cierre'
     GROUP BY et.proyecto_id
-  ) real_tm ON real_tm.proyecto_id = p.id;
+  ) real_tm ON real_tm.proyecto_id = p.id
+  LEFT JOIN (
+    SELECT et.proyecto_id, COUNT(DISTINCT h.id) AS total
+    FROM hu_dias_planificados d
+    JOIN historias_usuario h ON d.historia_usuario_id = h.id
+    JOIN epicas e ON h.epica_id = e.id
+    JOIN modulos m ON e.modulo_id = m.id
+    JOIN etapas et ON m.etapa_id = et.id
+    WHERE d.tipo_marca <> 'cierre'
+    GROUP BY et.proyecto_id
+  ) total_hu ON total_hu.proyecto_id = p.id
+  LEFT JOIN (
+    SELECT et.proyecto_id, COUNT(DISTINCT t.id) AS total
+    FROM tarea_matriz_dias_planificados d
+    JOIN tareas_matrices t ON d.tarea_matriz_id = t.id
+    JOIN etapas et ON t.etapa_id = et.id
+    WHERE d.tipo_marca <> 'cierre'
+    GROUP BY et.proyecto_id
+  ) total_tm ON total_tm.proyecto_id = p.id
+  LEFT JOIN (
+    SELECT et.proyecto_id, COUNT(DISTINCT h.id) AS cerradas
+    FROM hu_dias_reales d
+    JOIN historias_usuario h ON d.historia_usuario_id = h.id
+    JOIN epicas e ON h.epica_id = e.id
+    JOIN modulos m ON e.modulo_id = m.id
+    JOIN etapas et ON m.etapa_id = et.id
+    WHERE d.tipo_marca = 'cierre'
+      AND EXISTS (
+        SELECT 1 FROM hu_dias_planificados dp WHERE dp.historia_usuario_id = h.id AND dp.tipo_marca <> 'cierre'
+      )
+    GROUP BY et.proyecto_id
+  ) cerradas_hu ON cerradas_hu.proyecto_id = p.id
+  LEFT JOIN (
+    SELECT et.proyecto_id, COUNT(DISTINCT t.id) AS cerradas
+    FROM tarea_matriz_dias_reales d
+    JOIN tareas_matrices t ON d.tarea_matriz_id = t.id
+    JOIN etapas et ON t.etapa_id = et.id
+    WHERE d.tipo_marca = 'cierre'
+      AND EXISTS (
+        SELECT 1 FROM tarea_matriz_dias_planificados dp WHERE dp.tarea_matriz_id = t.id AND dp.tipo_marca <> 'cierre'
+      )
+    GROUP BY et.proyecto_id
+  ) cerradas_tm ON cerradas_tm.proyecto_id = p.id;
 END$$
 DELIMITER ;
 

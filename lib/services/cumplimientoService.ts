@@ -10,6 +10,8 @@ export interface ResumenCumplimientoProyecto {
   proyecto_id: number;
   dias_planificados: number;
   dias_reales: number;
+  total_actividades: number;
+  actividades_cerradas: number;
 }
 
 export async function obtenerResumenCumplimientoProyectos(): Promise<ResumenCumplimientoProyecto[]> {

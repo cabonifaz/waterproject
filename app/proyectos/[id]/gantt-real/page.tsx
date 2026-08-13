@@ -185,7 +185,7 @@ function construirItemsRender(estructura: EstructuraProyecto, indexReal: IndiceM
     const diasPlanificados = indexPlan.conteos.get(filaKey) ?? 0;
     const fechaCierre = indexReal.cierres.get(filaKey);
     const pct = porcentajeCumplim(diasReales, diasPlanificados);
-    const semaforo = calcularSemaforo(diasPlanificados, pct);
+    const semaforo = calcularSemaforo(diasPlanificados, diasReales, fechaCierre != null);
     return { diasReales, fechaCierre, porcentajeCumplimiento: pct, semaforo };
   };
 
@@ -285,12 +285,20 @@ const SEMAFORO_COLOR: Record<Semaforo, string> = {
   negro: 'bg-gray-700',
 };
 
-const SEMAFORO_LABEL: Record<Semaforo, string> = {
-  verde: 'En tiempo (desviación ≤ 5%)',
-  amarillo: 'Alerta (desviación 5%–8%)',
-  rojo: 'Atrasado (desviación > 8%)',
-  negro: 'Sin días planificados todavía',
-};
+// El significado de cada color depende de si la actividad ya cerró o
+// sigue en curso (ver calcularSemaforo en lib/avanceCedula.ts) — por eso
+// el label se arma dinámicamente en vez de un texto fijo por color.
+function labelSemaforo(semaforo: Semaforo, cerrada: boolean): string {
+  if (semaforo === 'negro') return 'Sin días planificados todavía';
+  if (!cerrada) {
+    if (semaforo === 'rojo') return 'Atrasado: ya superó los días planificados y sigue sin cerrar';
+    if (semaforo === 'amarillo') return 'Alerta: cerca del límite de días planificados';
+    return 'En curso, dentro de lo planificado';
+  }
+  if (semaforo === 'rojo') return 'Cerrada con desviación > 8% respecto de lo planificado';
+  if (semaforo === 'amarillo') return 'Cerrada con desviación 5%–8% respecto de lo planificado';
+  return 'Cerrada en tiempo (desviación ≤ 5%)';
+}
 
 const MODOS: { valor: Modo; label: string; color: string }[] = [
   { valor: 'desarrollo', label: '🟢 Desarrollo / Trabajo', color: 'bg-green-500' },
@@ -666,7 +674,10 @@ export default function GanttRealPage() {
                 ))}
               </div>
               <div className="flex items-center gap-4 text-xs text-gray-500">
-                <span className="flex items-center gap-1" title="% de cumplimiento = días reales / días planificados de esa fila">
+                <span
+                  className="flex items-center gap-1"
+                  title="En curso: rojo si ya superó los días planificados sin cerrar. Cerrada: rojo si terminó con más de 8% de desviación respecto de lo planificado."
+                >
                   <span className="w-2.5 h-2.5 rounded-full bg-green-500 inline-block" />
                   <span className="w-2.5 h-2.5 rounded-full bg-yellow-500 inline-block" />
                   <span className="w-2.5 h-2.5 rounded-full bg-red-500 inline-block" />
@@ -803,7 +814,7 @@ export default function GanttRealPage() {
                           <div className="font-medium text-gray-900 flex items-start gap-1.5 min-w-0">
                             {fila.semaforo && (
                               <span
-                                title={`${SEMAFORO_LABEL[fila.semaforo]}${
+                                title={`${labelSemaforo(fila.semaforo, fila.fechaCierre != null)}${
                                   fila.porcentajeCumplimiento != null ? ` — Cumplimiento: ${fila.porcentajeCumplimiento}%` : ''
                                 }`}
                                 className={`flex-shrink-0 px-1.5 py-0.5 rounded text-white text-[10px] font-bold leading-none ${SEMAFORO_COLOR[fila.semaforo]}`}

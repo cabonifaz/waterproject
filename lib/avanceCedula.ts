@@ -13,11 +13,23 @@
 // las re-planificaciones (Control de Cambios) ni con el avance real, así
 // el % de Fase de cada fila se mantiene estable corte a corte.
 //
-// Semáforo = desviación de cronograma = 100% - % Cumplimiento:
-//   sin días planificados -> negro (todavía no arrancó)
-//   <= 5%  -> verde
-//   > 5% y <= 8% -> amarillo
-//   > 8%   -> rojo
+// Semáforo — distingue dos casos, porque medir solo "100% - %Cumplimiento"
+// no alcanza: si una actividad lleva MÁS días reales que planificados y
+// todavía no cerró, esa desviación da negativa y el chequeo "<=5% -> verde"
+// la mostraba en verde (el peor caso posible pasando como el mejor).
+//   - Sin actividades planificadas -> negro (todavía no arrancó).
+//   - Actividad(es) SIN cerrar (queda alguna abierta): lo que importa es si
+//     ya se consumió el presupuesto de días sin terminar.
+//       % consumido = diasReales / diasPlanificados
+//       <= 80%  -> verde (normal, dentro de presupuesto)
+//       <= 100% -> amarillo (cerca del límite, alerta temprana)
+//       > 100%  -> rojo (ya se pasó del estimado y sigue sin cerrar: atraso real)
+//   - Todas las actividades CERRADAS: mide qué tan lejos terminó del
+//     estimado, en cualquier dirección (se pasó o cerró antes de tiempo).
+//       desviación = |% consumido - 100|
+//       <= 5%  -> verde
+//       <= 8%  -> amarillo
+//       > 8%   -> rojo
 
 import { EstructuraProyecto, EpicaConHU, TareaMatrizConDias, FilaAvanceCedula, Semaforo } from '@/types';
 
@@ -35,6 +47,10 @@ export interface FilaAvanceCalculada extends FilaAvanceCedula {
 
 function diasBaseline(dias: { tipo_marca: string }[]): number {
   return dias.filter((d) => d.tipo_marca !== 'cierre').length;
+}
+
+function tieneCierreReal(diasReales: { tipo_marca: string }[]): boolean {
+  return diasReales.some((d) => d.tipo_marca === 'cierre');
 }
 
 function diasEpicaBaseline(epica: EpicaConHU, campo: 'diasBaseline' | 'diasPlanificados' | 'diasReales'): number {
@@ -63,6 +79,8 @@ export function construirFilasAvanceCedula(estructura: EstructuraProyecto): Fila
         diasTotales: diasTareaMatriz(t, 'diasBaseline'),
         diasPlanificados: diasTareaMatriz(t, 'diasPlanificados'),
         diasReales: diasTareaMatriz(t, 'diasReales'),
+        totalActividades: 1,
+        actividadesCerradas: tieneCierreReal(t.diasReales) ? 1 : 0,
       });
     }
 
@@ -77,6 +95,8 @@ export function construirFilasAvanceCedula(estructura: EstructuraProyecto): Fila
           diasTotales: diasEpicaBaseline(epica, 'diasBaseline'),
           diasPlanificados: diasEpicaBaseline(epica, 'diasPlanificados'),
           diasReales: diasEpicaBaseline(epica, 'diasReales'),
+          totalActividades: epica.historias.length,
+          actividadesCerradas: epica.historias.filter((h) => tieneCierreReal(h.diasReales)).length,
         });
       }
     }
@@ -90,6 +110,8 @@ export function construirFilasAvanceCedula(estructura: EstructuraProyecto): Fila
       diasTotales: hijos.reduce((acc, h) => acc + h.diasTotales, 0),
       diasPlanificados: hijos.reduce((acc, h) => acc + h.diasPlanificados, 0),
       diasReales: hijos.reduce((acc, h) => acc + h.diasReales, 0),
+      totalActividades: hijos.reduce((acc, h) => acc + h.totalActividades, 0),
+      actividadesCerradas: hijos.reduce((acc, h) => acc + h.actividadesCerradas, 0),
     };
 
     filas.push(etapaFila, ...hijos);
@@ -103,11 +125,19 @@ export function porcentaje(parte: number, total: number): number | null {
   return Math.round((parte / total) * 1000) / 10;
 }
 
-// Exportado también para el resumen liviano de la lista de proyectos
-// (% cumplimiento + semáforo sin necesitar el baseline/Días Totales).
-export function calcularSemaforo(diasPlanificados: number, porcentajeCumplimiento: number | null): Semaforo {
-  if (diasPlanificados <= 0 || porcentajeCumplimiento == null) return 'negro';
-  const desviacion = 100 - porcentajeCumplimiento;
+// Exportado también para el resumen liviano de la lista de proyectos y
+// para el semáforo por fila del Gantt Real.
+export function calcularSemaforo(diasPlanificados: number, diasReales: number, cerrada: boolean): Semaforo {
+  if (diasPlanificados <= 0) return 'negro';
+  const pctConsumido = (diasReales / diasPlanificados) * 100;
+
+  if (!cerrada) {
+    if (pctConsumido > 100) return 'rojo'; // ya se pasó del estimado y sigue sin cerrar
+    if (pctConsumido >= 80) return 'amarillo'; // cerca del límite, alerta temprana
+    return 'verde';
+  }
+
+  const desviacion = Math.abs(pctConsumido - 100);
   if (desviacion <= 5) return 'verde';
   if (desviacion <= 8) return 'amarillo';
   return 'rojo';
@@ -123,18 +153,20 @@ export function calcularFilasConPorcentajes(filas: FilaAvanceCedula[]): {
   const totalDiasTotales = soloHijos.reduce((acc, f) => acc + f.diasTotales, 0);
   const totalDiasPlanificados = soloHijos.reduce((acc, f) => acc + f.diasPlanificados, 0);
   const totalDiasReales = soloHijos.reduce((acc, f) => acc + f.diasReales, 0);
+  const totalActividadesProyecto = soloHijos.reduce((acc, f) => acc + f.totalActividades, 0);
+  const totalActividadesCerradasProyecto = soloHijos.reduce((acc, f) => acc + f.actividadesCerradas, 0);
 
   const calcularFila = (f: FilaAvanceCedula): FilaAvanceCalculada => {
-    const porcentajeCumplimiento = porcentaje(f.diasReales, f.diasPlanificados);
+    const cerrada = f.totalActividades > 0 && f.actividadesCerradas === f.totalActividades;
     return {
       ...f,
       porcentajeFase: porcentaje(f.diasTotales, totalDiasTotales),
       porcentajePlanificado: porcentaje(f.diasPlanificados, f.diasTotales),
       porcentajeReal: porcentaje(f.diasReales, f.diasTotales),
-      porcentajeCumplimiento,
+      porcentajeCumplimiento: porcentaje(f.diasReales, f.diasPlanificados),
       porcentajeAvancePlanificado: porcentaje(f.diasPlanificados, totalDiasTotales),
       porcentajeAvanceReal: porcentaje(f.diasReales, totalDiasTotales),
-      semaforo: calcularSemaforo(f.diasPlanificados, porcentajeCumplimiento),
+      semaforo: calcularSemaforo(f.diasPlanificados, f.diasReales, cerrada),
     };
   };
 
@@ -147,6 +179,8 @@ export function calcularFilasConPorcentajes(filas: FilaAvanceCedula[]): {
     diasTotales: totalDiasTotales,
     diasPlanificados: totalDiasPlanificados,
     diasReales: totalDiasReales,
+    totalActividades: totalActividadesProyecto,
+    actividadesCerradas: totalActividadesCerradasProyecto,
   });
 
   return { filas: filas.map(calcularFila), totales };

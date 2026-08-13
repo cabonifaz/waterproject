@@ -30,6 +30,8 @@ export async function guardarCorte(
       f.diasTotales,
       f.diasPlanificados,
       f.diasReales,
+      f.totalActividades,
+      f.actividadesCerradas,
     ]);
   }
 
