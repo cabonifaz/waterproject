@@ -809,7 +809,7 @@ export default function GanttRealPage() {
                     <th
                       rowSpan={3}
                       style={{ ...CAPA_FIJA, left: 0, width: ANCHO_H }}
-                      className="sticky top-0 left-0 z-30 bg-slate-100 border text-center align-bottom"
+                      className="sticky left-0 z-30 bg-slate-100 border text-center align-bottom"
                       title="Fecha real de cierre"
                     >
                       H
@@ -817,14 +817,14 @@ export default function GanttRealPage() {
                     <th
                       rowSpan={3}
                       style={{ ...CAPA_FIJA, left: ANCHO_H, width: ANCHO_ACTIVIDAD }}
-                      className="sticky top-0 z-30 bg-slate-100 border px-2 py-1 text-left align-bottom"
+                      className="sticky z-30 bg-slate-100 border px-2 py-1 text-left align-bottom"
                     >
                       Actividad
                     </th>
                     <th
                       rowSpan={3}
                       style={{ ...CAPA_FIJA, left: ANCHO_H + ANCHO_ACTIVIDAD, width: ANCHO_MIEMBROS }}
-                      className="sticky top-0 z-30 bg-slate-100 border text-center align-bottom shadow-[4px_0_6px_-3px_rgba(15,23,42,0.25)]"
+                      className="sticky z-30 bg-slate-100 border text-center align-bottom shadow-[4px_0_6px_-3px_rgba(15,23,42,0.25)]"
                     >
                       Miembros
                     </th>
