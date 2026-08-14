@@ -715,7 +715,6 @@ export default function GanttPage() {
                                 </span>
                               )}
                             </div>
-                            <div className="text-[10px] text-gray-400 truncate">{fila.contexto}</div>
                           </td>
                           <td
                             style={{ left: ANCHO_ACTIVIDAD, width: ANCHO_H }}

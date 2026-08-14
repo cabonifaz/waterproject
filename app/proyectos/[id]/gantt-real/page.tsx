@@ -52,7 +52,7 @@ const ALTO_FILA_MES = 26;
 const ALTO_FILA_SPRINT = 26;
 const ALTO_FILA_DIA = 32;
 const ALTO_ENCABEZADO = ALTO_FILA_MES + ALTO_FILA_SPRINT + ALTO_FILA_DIA;
-const ALTO_FILA_DATO = 64;
+const ALTO_FILA_DATO = 56;
 const ALTO_FILA_DIVISOR = 28;
 
 // Fuerza que cada celda "sticky" tenga su propia capa de composición —
@@ -1078,7 +1078,6 @@ export default function GanttRealPage() {
                               )}
                             </span>
                           </div>
-                          <div className="text-[10px] text-gray-400 truncate">{fila.contexto}</div>
                           <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                             {fila.tipo === 'hu' &&
                               (() => {
