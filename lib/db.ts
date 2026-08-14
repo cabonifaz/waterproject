@@ -93,13 +93,15 @@ export async function executeQuery<T = any>(
  * Health check de la base de datos
  */
 export async function healthCheck(): Promise<boolean> {
+  let connection: PoolConnection | null = null;
   try {
-    const connection = await getConnection();
+    connection = await getConnection();
     await connection.query('SELECT 1');
-    connection.release();
     return true;
   } catch (error) {
     console.error('Database health check failed:', error);
     return false;
+  } finally {
+    connection?.release();
   }
 }

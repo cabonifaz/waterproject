@@ -3,6 +3,11 @@
 import { NextResponse } from 'next/server';
 import { healthCheck } from '@/lib/db';
 
+// Sin esto, Next.js puede prerenderizar esta ruta como estática en el
+// build (no lee nada del request) y servir siempre la misma respuesta
+// congelada — inútil como health check en vivo.
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   try {
     const ok = await healthCheck();
