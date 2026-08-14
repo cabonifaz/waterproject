@@ -9,7 +9,7 @@
 
 'use client';
 
-import { useCallback, useEffect, useMemo, useState, CSSProperties } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState, CSSProperties } from 'react';
 import { useParams } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import SelectorMiembros from '@/components/SelectorMiembros';
@@ -47,12 +47,13 @@ type ItemRender =
 const ANCHO_ACTIVIDAD = 220;
 const ANCHO_H = 36;
 const ANCHO_MIEMBROS = 96;
+const ALTO_FILA_MES = 26;
+const ALTO_FILA_SPRINT = 26;
+const ALTO_FILA_DIA = 32;
 
 // Fuerza que cada celda "sticky" tenga su propia capa de composición —
-// evita el glitch típico de position:sticky en tablas grandes (el
-// navegador a veces no repinta bien la celda fija durante el scroll y se
-// alcanza a ver el contenido de atrás por encima, sobre todo en la
-// esquina fija que combina sticky de arriba Y de la izquierda a la vez).
+// ayuda a que el navegador la repinte de forma más estable durante el
+// scroll.
 const CAPA_FIJA: CSSProperties = { transform: 'translateZ(0)', backfaceVisibility: 'hidden' };
 
 function formatFechaCorta(fecha: string): string {
@@ -795,272 +796,277 @@ export default function GanttRealPage() {
             </div>
 
             <div className="bg-white rounded-lg shadow overflow-auto flex-1 min-h-0">
-              <table className="table-fixed border-collapse text-xs">
-                <colgroup>
-                  <col style={{ width: ANCHO_H }} />
-                  <col style={{ width: ANCHO_ACTIVIDAD }} />
-                  <col style={{ width: ANCHO_MIEMBROS }} />
-                  {columnas.map((c) => (
-                    <col key={c.fecha} style={{ width: 44 }} />
-                  ))}
-                </colgroup>
-                <thead className="sticky top-0 z-20">
-                  <tr>
-                    <th
-                      rowSpan={3}
-                      style={{ ...CAPA_FIJA, left: 0, width: ANCHO_H }}
-                      className="sticky left-0 z-30 bg-slate-100 border text-center align-bottom"
-                      title="Fecha real de cierre"
-                    >
-                      H
-                    </th>
-                    <th
-                      rowSpan={3}
-                      style={{ ...CAPA_FIJA, left: ANCHO_H, width: ANCHO_ACTIVIDAD }}
-                      className="sticky z-30 bg-slate-100 border px-2 py-1 text-left align-bottom"
-                    >
-                      Actividad
-                    </th>
-                    <th
-                      rowSpan={3}
-                      style={{ ...CAPA_FIJA, left: ANCHO_H + ANCHO_ACTIVIDAD, width: ANCHO_MIEMBROS }}
-                      className="sticky z-30 bg-slate-100 border text-center align-bottom shadow-[4px_0_6px_-3px_rgba(15,23,42,0.25)]"
-                    >
-                      Miembros
-                    </th>
-                    {gruposMes.map((g, i) => (
-                      <th
-                        key={`${g.label}-${i}`}
-                        colSpan={g.cantidad}
-                        className="border-y border-r border-l-4 border-l-slate-900 px-1 py-1 text-center font-semibold bg-green-100 text-green-900"
-                      >
-                        {g.label}
-                      </th>
-                    ))}
-                  </tr>
-                  <tr>
-                    {gruposSprint.map((g, i) => (
-                      <th
-                        key={`${g.label}-${i}`}
-                        colSpan={g.cantidad}
-                        className="border-y border-r border-l-2 border-l-slate-500 px-1 py-1 text-center font-semibold bg-green-100 text-green-900"
-                      >
-                        {g.label}
-                      </th>
-                    ))}
-                  </tr>
-                  <tr>
-                    {columnas.map((c, i) => (
-                      <th
-                        key={c.fecha}
-                        title={c.esHoy ? `${c.fecha} — HOY, corte de Avance Célula` : c.fecha}
-                        className={`border w-11 h-8 text-[11px] font-semibold tabular-nums ${bordeGrupoDia(i)} ${
-                          c.esHoy
-                            ? 'border-purple-700 bg-purple-600 text-white'
-                            : c.esFeriado
-                            ? 'border-slate-300 bg-orange-200 text-orange-800'
-                            : 'border-slate-300 bg-slate-50 text-gray-700'
-                        }`}
-                      >
-                        {c.esHoy ? 'HOY' : `${c.diaSemana}${String(c.diaMes).padStart(2, '0')}`}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {itemsFiltrados.map((item) => {
-                    if (item.kind === 'divisor') {
-                      const estilo = ESTILOS_DIVISOR[item.nivel];
-                      const porcentajeGrupo =
-                        item.diasGrupo != null ? calcularPorcentaje(item.diasGrupo, totalGeneralReal) : null;
-                      return (
-                        <tr key={item.key}>
-                          <td
-                            colSpan={3}
-                            style={CAPA_FIJA}
-                            className={`sticky left-0 z-10 border px-2 py-1.5 h-7 font-semibold text-[11px] whitespace-nowrap ${estilo.fila} ${estilo.padding}`}
-                          >
-                            {item.label}
-                            {item.diasGrupo != null && (
-                              <span className="font-normal opacity-80">
-                                {' '}
-                                ({item.diasGrupo} día{item.diasGrupo === 1 ? '' : 's'}
-                                {porcentajeGrupo != null ? ` · ${porcentajeGrupo}%` : ''})
-                              </span>
-                            )}
-                          </td>
-                          <td colSpan={columnas.length} className={`border h-7 ${estilo.celda}`} />
-                        </tr>
-                      );
-                    }
-
-                    const fila = item.fila;
-                    const tipoEfectivoModoActual = tipoEfectivoDe(fila, modo);
-                    const modoAplica = puedeEditar && fila.marcasPermitidas.includes(tipoEfectivoModoActual);
-                    const porcentajePropio =
-                      fila.diasPropios != null ? calcularPorcentaje(fila.diasPropios, totalGeneralReal) : null;
-                    // Proyección de atraso: solo tiene sentido mientras sigue abierta y
-                    // alguien cargó una reestimación de "cuánto falta".
-                    const atrasoProyectado =
-                      fila.fechaCierre == null && fila.diasRestantesEstimados != null && fila.diasPlanificadosPropios != null
-                        ? (fila.diasPropios ?? 0) + fila.diasRestantesEstimados - fila.diasPlanificadosPropios
-                        : null;
-
+              {/*
+                Grid con divs en vez de <table>: position:sticky combinando eje
+                vertical y horizontal en la misma celda es un patrón frágil y
+                mal soportado específicamente dentro de <table> (glitches de
+                repintado durante el scroll). En un grid de divs el mismo
+                patrón es confiable, así que el panel fijo (H/Actividad/Miembros)
+                deja de parpadear o "moverse".
+              */}
+              <div
+                className="grid text-xs"
+                style={{ gridTemplateColumns: `${ANCHO_H}px ${ANCHO_ACTIVIDAD}px ${ANCHO_MIEMBROS}px repeat(${columnas.length}, 44px)` }}
+              >
+                <div
+                  style={{ ...CAPA_FIJA, top: 0, left: 0, gridColumn: '1 / 2', gridRow: '1 / span 3' }}
+                  className="sticky z-30 bg-slate-100 border flex items-end justify-center pb-1"
+                  title="Fecha real de cierre"
+                >
+                  H
+                </div>
+                <div
+                  style={{ ...CAPA_FIJA, top: 0, left: ANCHO_H, gridColumn: '2 / 3', gridRow: '1 / span 3' }}
+                  className="sticky z-30 bg-slate-100 border px-2 py-1 flex items-end"
+                >
+                  Actividad
+                </div>
+                <div
+                  style={{ ...CAPA_FIJA, top: 0, left: ANCHO_H + ANCHO_ACTIVIDAD, gridColumn: '3 / 4', gridRow: '1 / span 3' }}
+                  className="sticky z-30 bg-slate-100 border flex items-end justify-center shadow-[4px_0_6px_-3px_rgba(15,23,42,0.25)]"
+                >
+                  Miembros
+                </div>
+                {(() => {
+                  let col = 4;
+                  return gruposMes.map((g, i) => {
+                    const inicio = col;
+                    col += g.cantidad;
                     return (
-                      <tr key={`${fila.tipo}-${fila.id}`} className="hover:bg-blue-50">
-                        <td
-                          style={{ ...CAPA_FIJA, left: 0, width: ANCHO_H }}
-                          className="sticky z-10 bg-white border text-center"
+                      <div
+                        key={`${g.label}-${i}`}
+                        style={{ top: 0, height: ALTO_FILA_MES, gridColumn: `${inicio} / ${inicio + g.cantidad}`, gridRow: 1 }}
+                        className="sticky z-20 border-y border-r border-l-4 border-l-slate-900 px-1 py-1 flex items-center justify-center font-semibold bg-green-100 text-green-900"
+                      >
+                        {g.label}
+                      </div>
+                    );
+                  });
+                })()}
+                {(() => {
+                  let col = 4;
+                  return gruposSprint.map((g, i) => {
+                    const inicio = col;
+                    col += g.cantidad;
+                    return (
+                      <div
+                        key={`${g.label}-${i}`}
+                        style={{ top: ALTO_FILA_MES, height: ALTO_FILA_SPRINT, gridColumn: `${inicio} / ${inicio + g.cantidad}`, gridRow: 2 }}
+                        className="sticky z-20 border-y border-r border-l-2 border-l-slate-500 px-1 py-1 flex items-center justify-center font-semibold bg-green-100 text-green-900"
+                      >
+                        {g.label}
+                      </div>
+                    );
+                  });
+                })()}
+                {columnas.map((c, i) => (
+                  <div
+                    key={c.fecha}
+                    title={c.esHoy ? `${c.fecha} — HOY, corte de Avance Célula` : c.fecha}
+                    style={{ top: ALTO_FILA_MES + ALTO_FILA_SPRINT, height: ALTO_FILA_DIA, gridColumn: 4 + i, gridRow: 3 }}
+                    className={`sticky z-20 border flex items-center justify-center text-[11px] font-semibold tabular-nums ${bordeGrupoDia(i)} ${
+                      c.esHoy
+                        ? 'border-purple-700 bg-purple-600 text-white'
+                        : c.esFeriado
+                        ? 'border-slate-300 bg-orange-200 text-orange-800'
+                        : 'border-slate-300 bg-slate-50 text-gray-700'
+                    }`}
+                  >
+                    {c.esHoy ? 'HOY' : `${c.diaSemana}${String(c.diaMes).padStart(2, '0')}`}
+                  </div>
+                ))}
+
+                {itemsFiltrados.map((item) => {
+                  if (item.kind === 'divisor') {
+                    const estilo = ESTILOS_DIVISOR[item.nivel];
+                    const porcentajeGrupo =
+                      item.diasGrupo != null ? calcularPorcentaje(item.diasGrupo, totalGeneralReal) : null;
+                    return (
+                      <Fragment key={item.key}>
+                        <div
+                          style={{ ...CAPA_FIJA, left: 0, gridColumn: '1 / 4' }}
+                          className={`sticky z-10 border h-7 px-2 flex items-center font-semibold text-[11px] whitespace-nowrap ${estilo.fila} ${estilo.padding}`}
                         >
-                          {fila.fechaCierre && (
-                            <span
-                              title={`Fecha real de cierre: ${formatFechaCorta(fila.fechaCierre)}`}
-                              className="inline-flex items-center justify-center w-5 h-5 bg-blue-700 text-white text-[10px] font-bold rounded cursor-help"
-                            >
-                              H
+                          {item.label}
+                          {item.diasGrupo != null && (
+                            <span className="font-normal opacity-80">
+                              {' '}
+                              ({item.diasGrupo} día{item.diasGrupo === 1 ? '' : 's'}
+                              {porcentajeGrupo != null ? ` · ${porcentajeGrupo}%` : ''})
                             </span>
                           )}
-                        </td>
-                        <td
-                          title={fila.etiqueta}
-                          style={{ ...CAPA_FIJA, left: ANCHO_H, width: ANCHO_ACTIVIDAD }}
-                          className="sticky z-10 bg-white border px-2 py-1 pl-3 overflow-hidden"
-                        >
-                          <div className="font-medium text-gray-900 flex items-start gap-1.5 min-w-0">
-                            {fila.semaforo && (
-                              <span
-                                title={`${labelSemaforo(fila.semaforo, fila.fechaCierre != null)}${
-                                  fila.porcentajeCumplimiento != null ? ` — Cumplimiento: ${fila.porcentajeCumplimiento}%` : ''
-                                }`}
-                                className={`flex-shrink-0 px-1.5 py-0.5 rounded text-white text-[10px] font-bold leading-none ${SEMAFORO_COLOR[fila.semaforo]}`}
-                              >
-                                {fila.porcentajeCumplimiento != null ? `${fila.porcentajeCumplimiento}%` : '—'}
-                              </span>
-                            )}
-                            <span className="min-w-0 break-words leading-tight">
-                              {fila.etiqueta}
-                              {fila.diasPropios != null && (
-                                <span className="font-normal text-gray-400">
-                                  {' '}
-                                  ({fila.diasPropios} día{fila.diasPropios === 1 ? '' : 's'}
-                                  {porcentajePropio != null ? ` · ${porcentajePropio}%` : ''})
-                                </span>
-                              )}
-                            </span>
-                          </div>
-                          <div className="text-[10px] text-gray-400 truncate">{fila.contexto}</div>
-                          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                            {fila.tipo === 'hu' &&
-                              (() => {
-                                const conteo = conteoObservaciones.get(fila.id);
-                                return (
-                                  <button
-                                    onClick={() => setModalObservacionesHU({ id: fila.id, etiqueta: fila.etiqueta })}
-                                    title="Observaciones de certificación"
-                                    className={`flex-shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold leading-none border ${
-                                      conteo && conteo.abiertas > 0
-                                        ? 'bg-red-100 text-red-700 border-red-300'
-                                        : 'bg-gray-100 text-gray-500 border-gray-300 hover:bg-gray-200'
-                                    }`}
-                                  >
-                                    📋{conteo ? ` ${conteo.total}` : ''}
-                                  </button>
-                                );
-                              })()}
-                            {fila.fechaCierre == null && (
-                              <button
-                                onClick={() => abrirEdicionDiasRestantes(fila)}
-                                title="Días restantes estimados para terminar — click para editar"
-                                className="flex-shrink-0 px-1.5 py-0.5 rounded text-[10px] font-semibold leading-none border border-slate-300 text-slate-500 hover:bg-slate-100"
-                              >
-                                ⏳{fila.diasRestantesEstimados != null ? fila.diasRestantesEstimados : '?'}
-                              </button>
-                            )}
-                            {atrasoProyectado != null && atrasoProyectado > 0 && (
-                              <span
-                                title={`Proyección: ${fila.diasPropios ?? 0} reales + ${fila.diasRestantesEstimados} restantes = ${
-                                  (fila.diasPropios ?? 0) + (fila.diasRestantesEstimados ?? 0)
-                                } días, vs. ${fila.diasPlanificadosPropios} planificados`}
-                                className="flex-shrink-0 px-1.5 py-0.5 rounded bg-red-600 text-white text-[10px] font-bold leading-none"
-                              >
-                                +{atrasoProyectado}d atraso
-                              </span>
-                            )}
-                          </div>
-                        </td>
-                        <td
-                          style={{ ...CAPA_FIJA, left: ANCHO_H + ANCHO_ACTIVIDAD, width: ANCHO_MIEMBROS }}
-                          className="sticky z-10 bg-white border text-center px-1 shadow-[4px_0_6px_-3px_rgba(15,23,42,0.25)]"
-                        >
-                          <SelectorMiembros
-                            endpoint={
-                              fila.tipo === 'hu'
-                                ? `/api/historias-usuario/${fila.id}/miembros`
-                                : `/api/tareas-matrices/${fila.id}/miembros`
-                            }
-                            miembrosProyecto={estructura.miembros}
-                            miembrosAsignados={fila.miembros}
-                            onRefrescar={cargar}
-                          />
-                        </td>
-                        {columnas.map((c, i) => {
-                          const marca = marcas.get(claveMarca(fila.tipo, fila.id, c.fecha));
-                          const marcaPlan = marcasPlanificadas.get(claveMarca(fila.tipo, fila.id, c.fecha));
-                          return (
-                            <td
-                              key={c.fecha}
-                              onClick={() => modoAplica && handleClickCelda(fila, c.fecha)}
-                              title={
-                                !puedeEditar
-                                  ? 'Cerrá el planificado para poder registrar el real'
-                                  : !modoAplica
-                                  ? 'El modo activo no aplica a esta actividad'
-                                  : marcaPlan
-                                  ? `Planificado: ${marcaPlan}`
-                                  : undefined
-                              }
-                              className={`border border-slate-300 w-11 h-8 text-center ${bordeGrupoDia(i)} ${
-                                c.esHoy ? 'border-l-4 border-r-4 border-l-purple-600 border-r-purple-600' : ''
-                              } ${
-                                modoAplica ? 'cursor-pointer hover:opacity-70' : 'cursor-not-allowed'
-                              } ${marcaPlan ? anillosPlanificado[marcaPlan] : ''} ${
-                                !modoAplica
-                                  ? 'bg-gray-100'
-                                  : c.esFeriado
-                                  ? 'bg-orange-100'
-                                  : c.esHoy
-                                  ? 'bg-purple-50'
-                                  : 'bg-white'
-                              }`}
-                            >
-                              {marca && (
-                                <div className={`w-full h-full flex items-center justify-center ${coloresMarca[marca]}`}>
-                                  {marca === 'cierre' && <span className="text-white font-bold text-sm">H</span>}
-                                </div>
-                              )}
-                            </td>
-                          );
-                        })}
-                      </tr>
+                        </div>
+                        <div
+                          style={{ gridColumn: `4 / span ${columnas.length}` }}
+                          className={`border h-7 ${estilo.celda}`}
+                        />
+                      </Fragment>
                     );
-                  })}
-                  {filas.length === 0 && (
-                    <tr>
-                      <td colSpan={columnas.length + 3} className="text-center text-gray-400 py-8">
-                        Sin actividades todavía — agregá tareas matrices o historias de usuario.
-                      </td>
-                    </tr>
-                  )}
-                  {filas.length > 0 && itemsFiltrados.filter((i) => i.kind === 'fila').length === 0 && (
-                    <tr>
-                      <td colSpan={columnas.length + 3} className="text-center text-gray-400 py-8">
-                        Ninguna actividad coincide con el filtro &quot;
-                        {filtroHito === 'con_hito' ? 'Con hito (cerradas)' : 'Sin hito (pendientes)'}&quot;.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+                  }
+
+                  const fila = item.fila;
+                  const tipoEfectivoModoActual = tipoEfectivoDe(fila, modo);
+                  const modoAplica = puedeEditar && fila.marcasPermitidas.includes(tipoEfectivoModoActual);
+                  const porcentajePropio =
+                    fila.diasPropios != null ? calcularPorcentaje(fila.diasPropios, totalGeneralReal) : null;
+                  // Proyección de atraso: solo tiene sentido mientras sigue abierta y
+                  // alguien cargó una reestimación de "cuánto falta".
+                  const atrasoProyectado =
+                    fila.fechaCierre == null && fila.diasRestantesEstimados != null && fila.diasPlanificadosPropios != null
+                      ? (fila.diasPropios ?? 0) + fila.diasRestantesEstimados - fila.diasPlanificadosPropios
+                      : null;
+
+                  return (
+                    <Fragment key={`${fila.tipo}-${fila.id}`}>
+                      <div
+                        style={{ ...CAPA_FIJA, left: 0, gridColumn: '1 / 2' }}
+                        className="sticky z-10 bg-white border flex items-center justify-center"
+                      >
+                        {fila.fechaCierre && (
+                          <span
+                            title={`Fecha real de cierre: ${formatFechaCorta(fila.fechaCierre)}`}
+                            className="inline-flex items-center justify-center w-5 h-5 bg-blue-700 text-white text-[10px] font-bold rounded cursor-help"
+                          >
+                            H
+                          </span>
+                        )}
+                      </div>
+                      <div
+                        title={fila.etiqueta}
+                        style={{ ...CAPA_FIJA, left: ANCHO_H, gridColumn: '2 / 3' }}
+                        className="sticky z-10 bg-white border px-2 py-1 pl-3 overflow-hidden"
+                      >
+                        <div className="font-medium text-gray-900 flex items-start gap-1.5 min-w-0">
+                          {fila.semaforo && (
+                            <span
+                              title={`${labelSemaforo(fila.semaforo, fila.fechaCierre != null)}${
+                                fila.porcentajeCumplimiento != null ? ` — Cumplimiento: ${fila.porcentajeCumplimiento}%` : ''
+                              }`}
+                              className={`flex-shrink-0 px-1.5 py-0.5 rounded text-white text-[10px] font-bold leading-none ${SEMAFORO_COLOR[fila.semaforo]}`}
+                            >
+                              {fila.porcentajeCumplimiento != null ? `${fila.porcentajeCumplimiento}%` : '—'}
+                            </span>
+                          )}
+                          <span className="min-w-0 break-words leading-tight">
+                            {fila.etiqueta}
+                            {fila.diasPropios != null && (
+                              <span className="font-normal text-gray-400">
+                                {' '}
+                                ({fila.diasPropios} día{fila.diasPropios === 1 ? '' : 's'}
+                                {porcentajePropio != null ? ` · ${porcentajePropio}%` : ''})
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                        <div className="text-[10px] text-gray-400 truncate">{fila.contexto}</div>
+                        <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                          {fila.tipo === 'hu' &&
+                            (() => {
+                              const conteo = conteoObservaciones.get(fila.id);
+                              return (
+                                <button
+                                  onClick={() => setModalObservacionesHU({ id: fila.id, etiqueta: fila.etiqueta })}
+                                  title="Observaciones de certificación"
+                                  className={`flex-shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold leading-none border ${
+                                    conteo && conteo.abiertas > 0
+                                      ? 'bg-red-100 text-red-700 border-red-300'
+                                      : 'bg-gray-100 text-gray-500 border-gray-300 hover:bg-gray-200'
+                                  }`}
+                                >
+                                  📋{conteo ? ` ${conteo.total}` : ''}
+                                </button>
+                              );
+                            })()}
+                          {fila.fechaCierre == null && (
+                            <button
+                              onClick={() => abrirEdicionDiasRestantes(fila)}
+                              title="Días restantes estimados para terminar — click para editar"
+                              className="flex-shrink-0 px-1.5 py-0.5 rounded text-[10px] font-semibold leading-none border border-slate-300 text-slate-500 hover:bg-slate-100"
+                            >
+                              ⏳{fila.diasRestantesEstimados != null ? fila.diasRestantesEstimados : '?'}
+                            </button>
+                          )}
+                          {atrasoProyectado != null && atrasoProyectado > 0 && (
+                            <span
+                              title={`Proyección: ${fila.diasPropios ?? 0} reales + ${fila.diasRestantesEstimados} restantes = ${
+                                (fila.diasPropios ?? 0) + (fila.diasRestantesEstimados ?? 0)
+                              } días, vs. ${fila.diasPlanificadosPropios} planificados`}
+                              className="flex-shrink-0 px-1.5 py-0.5 rounded bg-red-600 text-white text-[10px] font-bold leading-none"
+                            >
+                              +{atrasoProyectado}d atraso
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div
+                        style={{ ...CAPA_FIJA, left: ANCHO_H + ANCHO_ACTIVIDAD, gridColumn: '3 / 4' }}
+                        className="sticky z-10 bg-white border px-1 flex items-center justify-center shadow-[4px_0_6px_-3px_rgba(15,23,42,0.25)]"
+                      >
+                        <SelectorMiembros
+                          endpoint={
+                            fila.tipo === 'hu'
+                              ? `/api/historias-usuario/${fila.id}/miembros`
+                              : `/api/tareas-matrices/${fila.id}/miembros`
+                          }
+                          miembrosProyecto={estructura.miembros}
+                          miembrosAsignados={fila.miembros}
+                          onRefrescar={cargar}
+                        />
+                      </div>
+                      {columnas.map((c, i) => {
+                        const marca = marcas.get(claveMarca(fila.tipo, fila.id, c.fecha));
+                        const marcaPlan = marcasPlanificadas.get(claveMarca(fila.tipo, fila.id, c.fecha));
+                        return (
+                          <div
+                            key={c.fecha}
+                            onClick={() => modoAplica && handleClickCelda(fila, c.fecha)}
+                            title={
+                              !puedeEditar
+                                ? 'Cerrá el planificado para poder registrar el real'
+                                : !modoAplica
+                                ? 'El modo activo no aplica a esta actividad'
+                                : marcaPlan
+                                ? `Planificado: ${marcaPlan}`
+                                : undefined
+                            }
+                            style={{ gridColumn: 4 + i }}
+                            className={`border border-slate-300 ${bordeGrupoDia(i)} ${
+                              c.esHoy ? 'border-l-4 border-r-4 border-l-purple-600 border-r-purple-600' : ''
+                            } ${
+                              modoAplica ? 'cursor-pointer hover:opacity-70' : 'cursor-not-allowed'
+                            } ${marcaPlan ? anillosPlanificado[marcaPlan] : ''} ${
+                              !modoAplica
+                                ? 'bg-gray-100'
+                                : c.esFeriado
+                                ? 'bg-orange-100'
+                                : c.esHoy
+                                ? 'bg-purple-50'
+                                : 'bg-white'
+                            }`}
+                          >
+                            {marca && (
+                              <div className={`w-full h-full flex items-center justify-center ${coloresMarca[marca]}`}>
+                                {marca === 'cierre' && <span className="text-white font-bold text-sm">H</span>}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </Fragment>
+                  );
+                })}
+                {filas.length === 0 && (
+                  <div style={{ gridColumn: '1 / -1' }} className="text-center text-gray-400 py-8">
+                    Sin actividades todavía — agregá tareas matrices o historias de usuario.
+                  </div>
+                )}
+                {filas.length > 0 && itemsFiltrados.filter((i) => i.kind === 'fila').length === 0 && (
+                  <div style={{ gridColumn: '1 / -1' }} className="text-center text-gray-400 py-8">
+                    Ninguna actividad coincide con el filtro &quot;
+                    {filtroHito === 'con_hito' ? 'Con hito (cerradas)' : 'Sin hito (pendientes)'}&quot;.
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
