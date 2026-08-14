@@ -661,52 +661,56 @@ export default function GanttRealPage() {
                 {estructura && <p className="text-gray-600 text-sm mt-1">{estructura.proyecto.nombre}</p>}
               </div>
             </div>
-            <div className="flex items-center gap-3">
-              <a
-                href={`/proyectos/${proyectoId}/avance-cedula`}
-                className="px-4 py-2 rounded-lg text-sm font-semibold bg-purple-600 text-white hover:bg-purple-700"
-              >
-                📋 Avance Célula
-              </a>
-              <a
-                href={`/proyectos/${proyectoId}/observaciones`}
-                className="px-4 py-2 rounded-lg text-sm font-semibold bg-white border-2 border-slate-300 text-slate-700 hover:bg-slate-50"
-              >
-                🔍 Inventario de Observaciones
-              </a>
-              <a
-                href={`/proyectos/${proyectoId}/gantt`}
-                className="px-4 py-2 rounded-lg text-sm font-semibold bg-white border-2 border-slate-300 text-slate-700 hover:bg-slate-50"
-              >
-                📊 Ir al Planificado
-              </a>
-              {estructura && columnas.length > 0 && (
-                <button
-                  onClick={handleExportarExcel}
-                  disabled={exportando}
-                  className="px-4 py-2 rounded-lg text-sm font-semibold bg-white border-2 border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            {controlesAbiertos && (
+              <div className="flex items-center gap-3 flex-wrap">
+                <a
+                  href={`/proyectos/${proyectoId}/avance-cedula`}
+                  className="px-4 py-2 rounded-lg text-sm font-semibold bg-purple-600 text-white hover:bg-purple-700"
                 >
-                  {exportando ? '⏳ Exportando...' : '📊 Exportar Excel'}
-                </button>
-              )}
-              {estructura && columnas.length > 0 && puedeEditar && (
-                <button
-                  onClick={() => setMostrarImportar(true)}
+                  📋 Avance Célula
+                </a>
+                <a
+                  href={`/proyectos/${proyectoId}/observaciones`}
                   className="px-4 py-2 rounded-lg text-sm font-semibold bg-white border-2 border-slate-300 text-slate-700 hover:bg-slate-50"
                 >
-                  📥 Importar Excel
-                </button>
-              )}
-              <a href={`/proyectos/${proyectoId}`} className="text-sm text-blue-600 hover:text-blue-800 font-semibold">
-                ← Volver a la estructura
-              </a>
-            </div>
+                  🔍 Inventario de Observaciones
+                </a>
+                <a
+                  href={`/proyectos/${proyectoId}/gantt`}
+                  className="px-4 py-2 rounded-lg text-sm font-semibold bg-white border-2 border-slate-300 text-slate-700 hover:bg-slate-50"
+                >
+                  📊 Ir al Planificado
+                </a>
+                {estructura && columnas.length > 0 && (
+                  <button
+                    onClick={handleExportarExcel}
+                    disabled={exportando}
+                    className="px-4 py-2 rounded-lg text-sm font-semibold bg-white border-2 border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    {exportando ? '⏳ Exportando...' : '📊 Exportar Excel'}
+                  </button>
+                )}
+                {estructura && columnas.length > 0 && puedeEditar && (
+                  <button
+                    onClick={() => setMostrarImportar(true)}
+                    className="px-4 py-2 rounded-lg text-sm font-semibold bg-white border-2 border-slate-300 text-slate-700 hover:bg-slate-50"
+                  >
+                    📥 Importar Excel
+                  </button>
+                )}
+                <a href={`/proyectos/${proyectoId}`} className="text-sm text-blue-600 hover:text-blue-800 font-semibold">
+                  ← Volver a la estructura
+                </a>
+              </div>
+            )}
           </div>
 
-          <p className="mb-4 -mt-2 text-xs text-gray-400">
-            🟣 La columna resaltada marca <strong>HOY</strong> — el reporte &quot;Avance Célula&quot; toma el corte a
-            esta fecha.
-          </p>
+          {controlesAbiertos && (
+            <p className="mb-4 -mt-2 text-xs text-gray-400">
+              🟣 La columna resaltada marca <strong>HOY</strong> — el reporte &quot;Avance Célula&quot; toma el corte a
+              esta fecha.
+            </p>
+          )}
 
           {!puedeEditar && (
             <div className="mb-4 bg-amber-50 border border-amber-300 text-amber-800 px-4 py-2 rounded-lg text-sm font-medium">
@@ -819,7 +823,11 @@ export default function GanttRealPage() {
                 )}
                 <button
                   onClick={() => setControlesAbiertos((v) => !v)}
-                  title={controlesAbiertos ? 'Ocultar resumen y leyenda (más espacio para el Gantt)' : 'Mostrar resumen y leyenda'}
+                  title={
+                    controlesAbiertos
+                      ? 'Ocultar botones, resumen y leyenda (más espacio para el Gantt)'
+                      : 'Mostrar botones, resumen y leyenda'
+                  }
                   className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 bg-white hover:bg-gray-100 text-gray-500 flex-shrink-0"
                 >
                   {controlesAbiertos ? '▴' : '▾'}
