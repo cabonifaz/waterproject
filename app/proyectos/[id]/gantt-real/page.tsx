@@ -979,6 +979,7 @@ export default function GanttRealPage() {
                   </div>
                 </div>
 
+                <div style={{ position: 'absolute', top: ALTO_ENCABEZADO, left: 0, right: 0, bottom: 0, overflow: 'hidden' }}>
                 <div ref={panelFijoBodyRef}>
                   {itemsFiltrados.map((item) => {
                     if (item.kind === 'divisor') {
@@ -1113,6 +1114,7 @@ export default function GanttRealPage() {
                       </div>
                     );
                   })}
+                </div>
                 </div>
               </div>
             </div>
