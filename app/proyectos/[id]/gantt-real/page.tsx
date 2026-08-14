@@ -876,7 +876,8 @@ export default function GanttRealPage() {
                   </div>
                 ))}
 
-                {itemsFiltrados.map((item) => {
+                {itemsFiltrados.map((item, filaIdx) => {
+                  const filaGrid = 4 + filaIdx;
                   if (item.kind === 'divisor') {
                     const estilo = ESTILOS_DIVISOR[item.nivel];
                     const porcentajeGrupo =
@@ -884,7 +885,7 @@ export default function GanttRealPage() {
                     return (
                       <Fragment key={item.key}>
                         <div
-                          style={{ ...CAPA_FIJA, left: 0, gridColumn: '1 / 4' }}
+                          style={{ ...CAPA_FIJA, left: 0, gridColumn: '1 / 4', gridRow: filaGrid }}
                           className={`sticky z-10 border h-7 px-2 flex items-center font-semibold text-[11px] whitespace-nowrap ${estilo.fila} ${estilo.padding}`}
                         >
                           {item.label}
@@ -897,7 +898,7 @@ export default function GanttRealPage() {
                           )}
                         </div>
                         <div
-                          style={{ gridColumn: `4 / span ${columnas.length}` }}
+                          style={{ gridColumn: `4 / span ${columnas.length}`, gridRow: filaGrid }}
                           className={`border h-7 ${estilo.celda}`}
                         />
                       </Fragment>
@@ -919,7 +920,7 @@ export default function GanttRealPage() {
                   return (
                     <Fragment key={`${fila.tipo}-${fila.id}`}>
                       <div
-                        style={{ ...CAPA_FIJA, left: 0, gridColumn: '1 / 2' }}
+                        style={{ ...CAPA_FIJA, left: 0, gridColumn: '1 / 2', gridRow: filaGrid }}
                         className="sticky z-10 bg-white border flex items-center justify-center"
                       >
                         {fila.fechaCierre && (
@@ -933,7 +934,7 @@ export default function GanttRealPage() {
                       </div>
                       <div
                         title={fila.etiqueta}
-                        style={{ ...CAPA_FIJA, left: ANCHO_H, gridColumn: '2 / 3' }}
+                        style={{ ...CAPA_FIJA, left: ANCHO_H, gridColumn: '2 / 3', gridRow: filaGrid }}
                         className="sticky z-10 bg-white border px-2 py-1 pl-3 overflow-hidden"
                       >
                         <div className="font-medium text-gray-900 flex items-start gap-1.5 min-w-0">
@@ -999,7 +1000,7 @@ export default function GanttRealPage() {
                         </div>
                       </div>
                       <div
-                        style={{ ...CAPA_FIJA, left: ANCHO_H + ANCHO_ACTIVIDAD, gridColumn: '3 / 4' }}
+                        style={{ ...CAPA_FIJA, left: ANCHO_H + ANCHO_ACTIVIDAD, gridColumn: '3 / 4', gridRow: filaGrid }}
                         className="sticky z-10 bg-white border px-1 flex items-center justify-center shadow-[4px_0_6px_-3px_rgba(15,23,42,0.25)]"
                       >
                         <SelectorMiembros
@@ -1029,7 +1030,7 @@ export default function GanttRealPage() {
                                 ? `Planificado: ${marcaPlan}`
                                 : undefined
                             }
-                            style={{ gridColumn: 4 + i }}
+                            style={{ gridColumn: 4 + i, gridRow: filaGrid }}
                             className={`border border-slate-300 ${bordeGrupoDia(i)} ${
                               c.esHoy ? 'border-l-4 border-r-4 border-l-purple-600 border-r-purple-600' : ''
                             } ${
@@ -1056,12 +1057,12 @@ export default function GanttRealPage() {
                   );
                 })}
                 {filas.length === 0 && (
-                  <div style={{ gridColumn: '1 / -1' }} className="text-center text-gray-400 py-8">
+                  <div style={{ gridColumn: '1 / -1', gridRow: 4 }} className="text-center text-gray-400 py-8">
                     Sin actividades todavía — agregá tareas matrices o historias de usuario.
                   </div>
                 )}
                 {filas.length > 0 && itemsFiltrados.filter((i) => i.kind === 'fila').length === 0 && (
-                  <div style={{ gridColumn: '1 / -1' }} className="text-center text-gray-400 py-8">
+                  <div style={{ gridColumn: '1 / -1', gridRow: 4 }} className="text-center text-gray-400 py-8">
                     Ninguna actividad coincide con el filtro &quot;
                     {filtroHito === 'con_hito' ? 'Con hito (cerradas)' : 'Sin hito (pendientes)'}&quot;.
                   </div>
