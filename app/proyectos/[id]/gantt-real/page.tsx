@@ -353,6 +353,7 @@ export default function GanttRealPage() {
   const [inputDiasRestantes, setInputDiasRestantes] = useState('');
   const [guardandoDiasRestantes, setGuardandoDiasRestantes] = useState(false);
   const [filtroHito, setFiltroHito] = useState<'todas' | 'con_hito' | 'sin_hito'>('todas');
+  const [controlesAbiertos, setControlesAbiertos] = useState(true);
 
   // Panel fijo (H/Actividad/Miembros) implementado como overlay absoluto en
   // vez de position:sticky — con ~60 filas x ~95 columnas, sticky se
@@ -739,28 +740,30 @@ export default function GanttRealPage() {
 
         {!loading && estructura && columnas.length > 0 && (
           <div className="flex-1 min-h-0 flex flex-col px-6 pb-6">
-            <div className="flex items-center gap-6 mb-3 bg-white rounded-lg shadow px-4 py-2 text-sm flex-shrink-0 flex-wrap">
-              <span className="font-semibold text-gray-700">🎯 Días reales:</span>
-              <span className="flex items-center gap-1.5 text-gray-600">
-                <span className="w-3 h-3 rounded bg-green-500 inline-block" /> Desarrollo:{' '}
-                <strong className="text-gray-900">{totalesReal.desarrollo}</strong>
-              </span>
-              <span className="flex items-center gap-1.5 text-gray-600">
-                <span className="w-3 h-3 rounded bg-orange-400 inline-block" /> Certificación:{' '}
-                <strong className="text-gray-900">{totalesReal.certificacion}</strong>
-              </span>
-              <span className="text-gray-600">
-                Total: <strong className="text-gray-900">{totalGeneralReal}</strong> día(s)
-              </span>
-              <span className="text-gray-400">|</span>
-              <span className="text-gray-500">
-                📊 Planificado: {totalesPlan.desarrollo} + {totalesPlan.certificacion} ={' '}
-                <strong>{totalGeneralPlan}</strong> día(s)
-              </span>
-            </div>
+            {controlesAbiertos && (
+              <div className="flex items-center gap-6 mb-3 bg-white rounded-lg shadow px-4 py-2 text-sm flex-shrink-0 flex-wrap">
+                <span className="font-semibold text-gray-700">🎯 Días reales:</span>
+                <span className="flex items-center gap-1.5 text-gray-600">
+                  <span className="w-3 h-3 rounded bg-green-500 inline-block" /> Desarrollo:{' '}
+                  <strong className="text-gray-900">{totalesReal.desarrollo}</strong>
+                </span>
+                <span className="flex items-center gap-1.5 text-gray-600">
+                  <span className="w-3 h-3 rounded bg-orange-400 inline-block" /> Certificación:{' '}
+                  <strong className="text-gray-900">{totalesReal.certificacion}</strong>
+                </span>
+                <span className="text-gray-600">
+                  Total: <strong className="text-gray-900">{totalGeneralReal}</strong> día(s)
+                </span>
+                <span className="text-gray-400">|</span>
+                <span className="text-gray-500">
+                  📊 Planificado: {totalesPlan.desarrollo} + {totalesPlan.certificacion} ={' '}
+                  <strong>{totalGeneralPlan}</strong> día(s)
+                </span>
+              </div>
+            )}
 
-            <div className="flex justify-between items-center gap-4 mb-4 bg-white rounded-lg shadow p-3 flex-shrink-0">
-              <div className="flex gap-2 items-center">
+            <div className="flex justify-between items-center gap-4 mb-4 bg-white rounded-lg shadow p-3 flex-shrink-0 flex-wrap">
+              <div className="flex gap-2 items-center flex-wrap">
                 <span className="text-sm text-gray-500 mr-1">Marcando (real):</span>
                 {MODOS.map((m) => (
                   <button
@@ -785,31 +788,42 @@ export default function GanttRealPage() {
                   <option value="con_hito">Con hito (cerradas)</option>
                 </select>
               </div>
-              <div className="flex items-center gap-4 text-xs text-gray-500">
-                <span
-                  className="flex items-center gap-1"
-                  title="En curso: rojo si ya superó los días planificados sin cerrar. Cerrada: rojo si terminó con más de 8% de desviación respecto de lo planificado."
+              <div className="flex items-center gap-3">
+                {controlesAbiertos && (
+                  <div className="flex items-center gap-4 text-xs text-gray-500 flex-wrap">
+                    <span
+                      className="flex items-center gap-1"
+                      title="En curso: rojo si ya superó los días planificados sin cerrar. Cerrada: rojo si terminó con más de 8% de desviación respecto de lo planificado."
+                    >
+                      <span className="w-2.5 h-2.5 rounded-full bg-green-500 inline-block" />
+                      <span className="w-2.5 h-2.5 rounded-full bg-yellow-500 inline-block" />
+                      <span className="w-2.5 h-2.5 rounded-full bg-red-500 inline-block" />
+                      <span className="w-2.5 h-2.5 rounded-full bg-gray-700 inline-block" /> Semáforo (% cumplimiento)
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <span className="w-3 h-3 rounded ring-2 ring-inset ring-green-500 bg-white inline-block" />{' '}
+                      Planificado (referencia)
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <span className="w-3 h-3 rounded bg-orange-200 inline-block" /> Feriado
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <span className="w-1.5 h-3 rounded bg-purple-600 inline-block" /> Hoy
+                    </span>
+                    <span>
+                      {columnas.length} día(s) · {filas.length} actividad(es)
+                      {filtroHito !== 'todas' &&
+                        ` (${itemsFiltrados.filter((i) => i.kind === 'fila').length} visibles con el filtro)`}
+                    </span>
+                  </div>
+                )}
+                <button
+                  onClick={() => setControlesAbiertos((v) => !v)}
+                  title={controlesAbiertos ? 'Ocultar resumen y leyenda (más espacio para el Gantt)' : 'Mostrar resumen y leyenda'}
+                  className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 bg-white hover:bg-gray-100 text-gray-500 flex-shrink-0"
                 >
-                  <span className="w-2.5 h-2.5 rounded-full bg-green-500 inline-block" />
-                  <span className="w-2.5 h-2.5 rounded-full bg-yellow-500 inline-block" />
-                  <span className="w-2.5 h-2.5 rounded-full bg-red-500 inline-block" />
-                  <span className="w-2.5 h-2.5 rounded-full bg-gray-700 inline-block" /> Semáforo (% cumplimiento)
-                </span>
-                <span className="flex items-center gap-1">
-                  <span className="w-3 h-3 rounded ring-2 ring-inset ring-green-500 bg-white inline-block" /> Planificado
-                  (referencia)
-                </span>
-                <span className="flex items-center gap-1">
-                  <span className="w-3 h-3 rounded bg-orange-200 inline-block" /> Feriado
-                </span>
-                <span className="flex items-center gap-1">
-                  <span className="w-1.5 h-3 rounded bg-purple-600 inline-block" /> Hoy
-                </span>
-                <span>
-                  {columnas.length} día(s) · {filas.length} actividad(es)
-                  {filtroHito !== 'todas' &&
-                    ` (${itemsFiltrados.filter((i) => i.kind === 'fila').length} visibles con el filtro)`}
-                </span>
+                  {controlesAbiertos ? '▴' : '▾'}
+                </button>
               </div>
             </div>
 
