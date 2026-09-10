@@ -46,7 +46,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const required = ['nombre', 'fecha_inicio'];
+    const required = ['nombre', 'fecha_inicio', 'pi_id'];
     for (const field of required) {
       if (!body[field]) {
         return NextResponse.json({ error: `Campo requerido: ${field}` }, { status: 400 });

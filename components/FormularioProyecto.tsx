@@ -5,6 +5,8 @@
 import { useState } from 'react';
 
 interface Props {
+  piId: number;
+  celulaId: number | null;
   onSuccess: (id: number) => void;
 }
 
@@ -12,7 +14,7 @@ const inputClass =
   'w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500';
 const labelClass = 'block text-sm font-medium text-gray-700 mb-1';
 
-const FormularioProyecto = ({ onSuccess }: Props) => {
+const FormularioProyecto = ({ piId, celulaId, onSuccess }: Props) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [nombre, setNombre] = useState('');
@@ -28,7 +30,14 @@ const FormularioProyecto = ({ onSuccess }: Props) => {
       const res = await fetch('/api/proyectos', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nombre, descripcion, fecha_inicio: fechaInicio, usarPlantilla }),
+        body: JSON.stringify({
+          nombre,
+          descripcion,
+          fecha_inicio: fechaInicio,
+          usarPlantilla,
+          pi_id: piId,
+          celula_id: celulaId,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Error al crear el proyecto');

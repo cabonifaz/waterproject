@@ -1,6 +1,6 @@
 // components/SprintsSeccion.tsx
-// Franja con la línea de tiempo de sprints (plantilla global, compartida
-// por todos los proyectos — son las columnas del Gantt) + botón para
+// Franja con la línea de tiempo de sprints del PI (compartida por todos
+// los proyectos de ese PI — son las columnas del Gantt) + botón para
 // generar más.
 
 'use client';
@@ -11,6 +11,7 @@ import FormularioSprints from './FormularioSprints';
 import { Sprint } from '@/types';
 
 interface Props {
+  piId: number;
   sprints: Sprint[];
   onRefrescar: () => void;
 }
@@ -18,7 +19,7 @@ interface Props {
 const formatFecha = (fecha: Date) =>
   new Date(fecha).toLocaleDateString('es', { day: '2-digit', month: '2-digit', year: '2-digit' });
 
-const SprintsSeccion = ({ sprints, onRefrescar }: Props) => {
+const SprintsSeccion = ({ piId, sprints, onRefrescar }: Props) => {
   const [mostrarForm, setMostrarForm] = useState(false);
   const lista = sprints || [];
   const siguienteNumero = (lista[lista.length - 1]?.numero || 0) + 1;
@@ -63,6 +64,7 @@ const SprintsSeccion = ({ sprints, onRefrescar }: Props) => {
       {mostrarForm && (
         <Modal titulo="Generar Sprints" onClose={() => setMostrarForm(false)}>
           <FormularioSprints
+            piId={piId}
             siguienteNumero={siguienteNumero}
             mostrarPriorizacion={mostrarPriorizacion}
             onSuccess={() => {

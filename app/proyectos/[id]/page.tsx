@@ -63,6 +63,15 @@ export default function ProyectoEstructuraPage() {
             <>
               <div className="flex justify-between items-center mb-6">
                 <div>
+                  {estructura.proyecto.pi_id && (
+                    <a
+                      href={`/pis/${estructura.proyecto.pi_id}`}
+                      className="text-sm text-blue-600 hover:text-blue-800"
+                    >
+                      ← {estructura.proyecto.pi_nombre || 'PI'}
+                      {estructura.proyecto.celula_nombre ? ` · ${estructura.proyecto.celula_nombre}` : ''}
+                    </a>
+                  )}
                   <h1 className="text-3xl font-bold text-gray-900">{estructura.proyecto.nombre}</h1>
                   {estructura.proyecto.descripcion && (
                     <p className="text-gray-600 mt-2">{estructura.proyecto.descripcion}</p>
@@ -70,10 +79,10 @@ export default function ProyectoEstructuraPage() {
                 </div>
                 <div className="flex gap-3">
                   <a
-                    href="/sprints"
+                    href={estructura.proyecto.pi_id ? `/pis/${estructura.proyecto.pi_id}` : '/pis'}
                     className="px-6 py-3 bg-white border-2 border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 font-semibold transition-colors"
                   >
-                    🗓️ Sprints y Feriados
+                    🗓️ Sprints del PI
                   </a>
                   <a
                     href={`/proyectos/${proyectoId}/gantt`}
@@ -161,7 +170,9 @@ export default function ProyectoEstructuraPage() {
               proyectoId={proyectoId}
               nombreProyecto={estructura.proyecto.nombre}
               onClose={() => setMostrarEliminar(false)}
-              onEliminado={() => router.push('/proyectos')}
+              onEliminado={() =>
+                router.push(estructura.proyecto.pi_id ? `/pis/${estructura.proyecto.pi_id}` : '/pis')
+              }
             />
           )}
         </div>

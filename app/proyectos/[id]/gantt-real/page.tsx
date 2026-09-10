@@ -394,7 +394,7 @@ export default function GanttRealPage() {
       setLoading(true);
       const [res, resSprints, resFeriados] = await Promise.all([
         fetch(`/api/proyectos/${proyectoId}/estructura`),
-        fetch('/api/sprints'),
+        fetch(`/api/proyectos/${proyectoId}/sprints`),
         fetch('/api/feriados'),
       ]);
       if (!res.ok) throw new Error('Error al obtener la estructura del proyecto');
@@ -733,9 +733,12 @@ export default function GanttRealPage() {
 
           {!loading && estructura && columnas.length === 0 && (
             <div className="bg-white rounded-lg shadow p-8 text-center text-gray-500 mb-4">
-              Todavía no hay sprints generados.{' '}
-              <a href="/sprints" className="text-blue-600 hover:text-blue-800 font-semibold">
-                Generalos primero acá
+              Este PI todavía no tiene sprints generados.{' '}
+              <a
+                href={estructura.proyecto.pi_id ? `/pis/${estructura.proyecto.pi_id}` : '/pis'}
+                className="text-blue-600 hover:text-blue-800 font-semibold"
+              >
+                Generalos primero en el PI
               </a>
               .
             </div>

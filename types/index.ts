@@ -3,8 +3,35 @@
 
 export type Semaforo = 'verde' | 'amarillo' | 'rojo' | 'negro';
 
+// Programa Incremental (PI): contenedor de nivel superior (modo SAFe).
+// Tiene sus propios sprints y sus propias células; los proyectos se
+// ejecutan dentro de un PI, asignados a una célula.
+export interface ProgramaIncremental {
+  id: number;
+  nombre: string;
+  fecha_inicio: Date | null;
+  estado: 'activo' | 'cerrado';
+  orden: number;
+  created_at: Date;
+  updated_at: Date;
+  // Contadores derivados (vienen de sp_listar_pis / sp_obtener_pi).
+  celulas_count?: number;
+  proyectos_count?: number;
+  sprints_count?: number;
+}
+
+export interface Celula {
+  id: number;
+  pi_id: number;
+  nombre: string;
+  orden: number;
+  created_at: Date;
+}
+
 export interface Proyecto {
   id: number;
+  pi_id: number | null;
+  celula_id: number | null;
   nombre: string;
   descripcion?: string;
   fecha_inicio: Date;
@@ -13,14 +40,19 @@ export interface Proyecto {
   baseline_capturado: boolean;
   created_at: Date;
   updated_at: Date;
-  // Solo presentes cuando vienen del listado GET /api/proyectos (resumen
-  // liviano de días planificados/reales, sin baseline).
+  // Nombres del PI / célula: presentes cuando vienen de sp_obtener_proyecto
+  // o sp_listar_proyectos_pi.
+  pi_nombre?: string | null;
+  celula_nombre?: string | null;
+  // Solo presentes cuando vienen del listado por PI (resumen liviano de
+  // días planificados/reales, sin baseline).
   porcentajeCumplimiento?: number | null;
   semaforo?: Semaforo;
 }
 
 export interface Sprint {
   id: number;
+  pi_id: number;
   numero: number;
   tipo: 'priorizacion' | 'sprint';
   fecha_inicio: Date;

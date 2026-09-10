@@ -10,8 +10,8 @@ const Sidebar = () => {
   const pathname = usePathname();
 
   const menuItems = [
-    { href: '/proyectos', label: '📁 Proyectos' },
-    { href: '/sprints', label: '🗓️ Sprints y Feriados' },
+    { href: '/pis', label: '🎯 Programas Incrementales' },
+    { href: '/feriados', label: '🚫 Feriados' },
   ];
 
   return (

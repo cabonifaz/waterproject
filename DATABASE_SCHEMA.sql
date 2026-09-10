@@ -30,6 +30,45 @@ CREATE TABLE IF NOT EXISTS proyectos (
 ALTER TABLE proyectos ADD COLUMN estado_planificacion ENUM('abierto', 'cerrado') NOT NULL DEFAULT 'abierto' AFTER estado;
 ALTER TABLE proyectos ADD COLUMN baseline_capturado BOOLEAN NOT NULL DEFAULT FALSE AFTER estado_planificacion;
 
+-- ========================================
+-- PROGRAMA INCREMENTAL (PI) + CÉLULAS
+-- ========================================
+-- El PI es el contenedor de nivel superior (modo SAFe): tiene sus PROPIOS
+-- sprints y sus PROPIAS células (equipos). Un proyecto pertenece a
+-- exactamente un PI y (opcionalmente) a una célula de ese PI. Los feriados
+-- siguen siendo globales.
+CREATE TABLE IF NOT EXISTS programas_incrementales (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  nombre VARCHAR(255) NOT NULL,
+  fecha_inicio DATE NULL,
+  estado ENUM('activo', 'cerrado') NOT NULL DEFAULT 'activo',
+  orden INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Células (equipos) de un PI. La lista NO se comparte entre PIs — cada PI
+-- arma la suya. Al borrar el PI se borran sus células (cascade); al borrar
+-- una célula, los proyectos que la tenían quedan con celula_id = NULL.
+CREATE TABLE IF NOT EXISTS celulas (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  pi_id INT NOT NULL,
+  nombre VARCHAR(255) NOT NULL,
+  orden INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (pi_id) REFERENCES programas_incrementales(id) ON DELETE CASCADE,
+  UNIQUE KEY uq_pi_celula (pi_id, nombre)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Enganche del proyecto a su PI y célula. pi_id con ON DELETE RESTRICT:
+-- no se puede borrar un PI que todavía tiene proyectos (sp_eliminar_pi lo
+-- valida antes con un mensaje claro). celula_id con ON DELETE SET NULL.
+-- ALTER tolerado por setup-database.js en instalaciones ya existentes.
+ALTER TABLE proyectos ADD COLUMN pi_id INT NULL AFTER id;
+ALTER TABLE proyectos ADD COLUMN celula_id INT NULL AFTER pi_id;
+ALTER TABLE proyectos ADD CONSTRAINT fk_proyecto_pi FOREIGN KEY (pi_id) REFERENCES programas_incrementales(id) ON DELETE RESTRICT;
+ALTER TABLE proyectos ADD CONSTRAINT fk_proyecto_celula FOREIGN KEY (celula_id) REFERENCES celulas(id) ON DELETE SET NULL;
+
 -- tipo='desarrollo': la única etapa del proyecto que puede tener módulos
 -- (-> épicas -> HU). tipo='simple': el resto de las etapas, que solo
 -- pueden tener tareas matrices directas.
@@ -119,22 +158,34 @@ CREATE TABLE IF NOT EXISTS tareas_matrices (
 
 ALTER TABLE tareas_matrices ADD COLUMN dias_restantes_estimados INT DEFAULT NULL AFTER dias_estimados;
 
--- Plantilla global de sprints: NO pertenecen a un proyecto — es una única
--- línea de tiempo compartida por todos los proyectos (misma calendarización
--- de sprints para toda la organización).
+-- Sprints POR PI: cada Programa Incremental tiene su propia secuencia de
+-- sprints (numero corre 1..N dentro del PI). Definen las columnas del Gantt
+-- de los proyectos de ese PI. Al borrar el PI se borran sus sprints.
 CREATE TABLE IF NOT EXISTS sprints (
   id INT AUTO_INCREMENT PRIMARY KEY,
-  numero INT NOT NULL UNIQUE,
+  pi_id INT NOT NULL,
+  numero INT NOT NULL,
   tipo ENUM('priorizacion','sprint') NOT NULL DEFAULT 'sprint',
   fecha_inicio DATE NOT NULL,
   fecha_fin DATE NOT NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (pi_id) REFERENCES programas_incrementales(id) ON DELETE CASCADE,
+  UNIQUE KEY uq_pi_numero (pi_id, numero)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Migración de columna sobre tabla ya existente (CREATE TABLE IF NOT EXISTS
 -- no la agrega si la tabla ya estaba creada); "Duplicate column" en un
 -- re-run es esperado e inofensivo.
 ALTER TABLE sprints ADD COLUMN tipo ENUM('priorizacion','sprint') NOT NULL DEFAULT 'sprint' AFTER numero;
+
+-- Paso a sprints por PI sobre una tabla que era global: se agrega pi_id, se
+-- cambia el UNIQUE(numero) por UNIQUE(pi_id, numero) y se engancha la FK.
+-- Todos estos ALTER fallan (sin romper el setup) en una instalación limpia
+-- porque el CREATE TABLE de arriba ya los dejó aplicados.
+ALTER TABLE sprints ADD COLUMN pi_id INT NOT NULL AFTER id;
+ALTER TABLE sprints DROP INDEX numero;
+ALTER TABLE sprints ADD UNIQUE KEY uq_pi_numero (pi_id, numero);
+ALTER TABLE sprints ADD CONSTRAINT fk_sprint_pi FOREIGN KEY (pi_id) REFERENCES programas_incrementales(id) ON DELETE CASCADE;
 
 -- Feriados globales: se muestran resaltados en todas las filas del Gantt
 -- (no se excluyen como los fines de semana) para que se note que ese día
@@ -297,11 +348,13 @@ DELIMITER $$
 CREATE PROCEDURE sp_crear_proyecto (
   IN p_nombre VARCHAR(255),
   IN p_descripcion LONGTEXT,
-  IN p_fecha_inicio DATE
+  IN p_fecha_inicio DATE,
+  IN p_pi_id INT,
+  IN p_celula_id INT
 )
 BEGIN
-  INSERT INTO proyectos (nombre, descripcion, fecha_inicio)
-  VALUES (p_nombre, p_descripcion, p_fecha_inicio);
+  INSERT INTO proyectos (nombre, descripcion, fecha_inicio, pi_id, celula_id)
+  VALUES (p_nombre, p_descripcion, p_fecha_inicio, p_pi_id, p_celula_id);
   SELECT LAST_INSERT_ID() AS id;
 END$$
 DELIMITER ;
@@ -314,13 +367,49 @@ BEGIN
 END$$
 DELIMITER ;
 
+-- Proyectos de un PI con el nombre de su célula, ordenados por célula.
+DROP PROCEDURE IF EXISTS sp_listar_proyectos_pi;
+DELIMITER $$
+CREATE PROCEDURE sp_listar_proyectos_pi (
+  IN p_pi_id INT
+)
+BEGIN
+  SELECT p.*, c.nombre AS celula_nombre, c.orden AS celula_orden
+  FROM proyectos p
+  LEFT JOIN celulas c ON c.id = p.celula_id
+  WHERE p.pi_id = p_pi_id
+  ORDER BY (p.celula_id IS NULL), c.orden, c.id, p.created_at DESC;
+END$$
+DELIMITER ;
+
 DROP PROCEDURE IF EXISTS sp_obtener_proyecto;
 DELIMITER $$
 CREATE PROCEDURE sp_obtener_proyecto (
   IN p_id INT
 )
 BEGIN
-  SELECT * FROM proyectos WHERE id = p_id;
+  SELECT p.*, pi.nombre AS pi_nombre, c.nombre AS celula_nombre
+  FROM proyectos p
+  LEFT JOIN programas_incrementales pi ON pi.id = p.pi_id
+  LEFT JOIN celulas c ON c.id = p.celula_id
+  WHERE p.id = p_id;
+END$$
+DELIMITER ;
+
+-- Reasigna el proyecto a otra célula del mismo PI (o a NULL).
+DROP PROCEDURE IF EXISTS sp_asignar_proyecto_celula;
+DELIMITER $$
+CREATE PROCEDURE sp_asignar_proyecto_celula (
+  IN p_proyecto_id INT,
+  IN p_celula_id INT
+)
+BEGIN
+  UPDATE proyectos SET celula_id = p_celula_id WHERE id = p_proyecto_id;
+  SELECT p.*, pi.nombre AS pi_nombre, c.nombre AS celula_nombre
+  FROM proyectos p
+  LEFT JOIN programas_incrementales pi ON pi.id = p.pi_id
+  LEFT JOIN celulas c ON c.id = p.celula_id
+  WHERE p.id = p_proyecto_id;
 END$$
 DELIMITER ;
 
@@ -381,8 +470,9 @@ DELIMITER ;
 -- Elimina el proyecto completo. Todo lo que cuelga de él (etapas, módulos,
 -- épicas, HU, tareas matrices, y los días planificados de cada una) se
 -- borra en cascada por las FK ON DELETE CASCADE — no hace falta borrarlo a
--- mano tabla por tabla. Los sprints y feriados NO se tocan: son globales,
--- compartidos con el resto de los proyectos.
+-- mano tabla por tabla. Los sprints del PI y los feriados NO se tocan: los
+-- sprints son del PI (compartidos por los proyectos de ese PI) y los
+-- feriados son globales.
 DROP PROCEDURE IF EXISTS sp_eliminar_proyecto;
 DELIMITER $$
 CREATE PROCEDURE sp_eliminar_proyecto (
@@ -390,6 +480,139 @@ CREATE PROCEDURE sp_eliminar_proyecto (
 )
 BEGIN
   DELETE FROM proyectos WHERE id = p_id;
+END$$
+DELIMITER ;
+
+-- ========================================
+-- 2b. STORED PROCEDURES: PROGRAMA INCREMENTAL (PI) + CÉLULAS
+-- ========================================
+
+DROP PROCEDURE IF EXISTS sp_crear_pi;
+DELIMITER $$
+CREATE PROCEDURE sp_crear_pi (
+  IN p_nombre VARCHAR(255),
+  IN p_fecha_inicio DATE
+)
+BEGIN
+  DECLARE v_orden INT DEFAULT 0;
+  SELECT COALESCE(MAX(orden) + 1, 0) INTO v_orden FROM programas_incrementales;
+  INSERT INTO programas_incrementales (nombre, fecha_inicio, orden)
+  VALUES (p_nombre, p_fecha_inicio, v_orden);
+  SELECT LAST_INSERT_ID() AS id;
+END$$
+DELIMITER ;
+
+DROP PROCEDURE IF EXISTS sp_listar_pis;
+DELIMITER $$
+CREATE PROCEDURE sp_listar_pis ()
+BEGIN
+  SELECT
+    pi.*,
+    (SELECT COUNT(*) FROM celulas c WHERE c.pi_id = pi.id) AS celulas_count,
+    (SELECT COUNT(*) FROM proyectos p WHERE p.pi_id = pi.id) AS proyectos_count,
+    (SELECT COUNT(*) FROM sprints s WHERE s.pi_id = pi.id AND s.tipo = 'sprint') AS sprints_count
+  FROM programas_incrementales pi
+  ORDER BY pi.orden, pi.id;
+END$$
+DELIMITER ;
+
+DROP PROCEDURE IF EXISTS sp_obtener_pi;
+DELIMITER $$
+CREATE PROCEDURE sp_obtener_pi (
+  IN p_id INT
+)
+BEGIN
+  SELECT
+    pi.*,
+    (SELECT COUNT(*) FROM celulas c WHERE c.pi_id = pi.id) AS celulas_count,
+    (SELECT COUNT(*) FROM proyectos p WHERE p.pi_id = pi.id) AS proyectos_count,
+    (SELECT COUNT(*) FROM sprints s WHERE s.pi_id = pi.id AND s.tipo = 'sprint') AS sprints_count
+  FROM programas_incrementales pi
+  WHERE pi.id = p_id;
+END$$
+DELIMITER ;
+
+DROP PROCEDURE IF EXISTS sp_actualizar_pi;
+DELIMITER $$
+CREATE PROCEDURE sp_actualizar_pi (
+  IN p_id INT,
+  IN p_nombre VARCHAR(255),
+  IN p_fecha_inicio DATE,
+  IN p_estado VARCHAR(20)
+)
+BEGIN
+  UPDATE programas_incrementales
+  SET nombre = p_nombre,
+      fecha_inicio = p_fecha_inicio,
+      estado = p_estado
+  WHERE id = p_id;
+  SELECT * FROM programas_incrementales WHERE id = p_id;
+END$$
+DELIMITER ;
+
+-- No se puede borrar un PI que todavía tiene proyectos (la FK es RESTRICT,
+-- pero acá cortamos antes con un mensaje claro). Al borrar, las células y
+-- los sprints del PI se van en cascada.
+DROP PROCEDURE IF EXISTS sp_eliminar_pi;
+DELIMITER $$
+CREATE PROCEDURE sp_eliminar_pi (
+  IN p_id INT
+)
+BEGIN
+  DECLARE v_proyectos INT DEFAULT 0;
+  SELECT COUNT(*) INTO v_proyectos FROM proyectos WHERE pi_id = p_id;
+  IF v_proyectos > 0 THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT = 'No se puede eliminar el PI: tiene proyectos asignados';
+  END IF;
+  DELETE FROM programas_incrementales WHERE id = p_id;
+END$$
+DELIMITER ;
+
+DROP PROCEDURE IF EXISTS sp_crear_celula;
+DELIMITER $$
+CREATE PROCEDURE sp_crear_celula (
+  IN p_pi_id INT,
+  IN p_nombre VARCHAR(255)
+)
+BEGIN
+  DECLARE v_orden INT DEFAULT 0;
+  SELECT COALESCE(MAX(orden) + 1, 0) INTO v_orden FROM celulas WHERE pi_id = p_pi_id;
+  INSERT INTO celulas (pi_id, nombre, orden)
+  VALUES (p_pi_id, p_nombre, v_orden);
+  SELECT * FROM celulas WHERE id = LAST_INSERT_ID();
+END$$
+DELIMITER ;
+
+DROP PROCEDURE IF EXISTS sp_listar_celulas_pi;
+DELIMITER $$
+CREATE PROCEDURE sp_listar_celulas_pi (
+  IN p_pi_id INT
+)
+BEGIN
+  SELECT * FROM celulas WHERE pi_id = p_pi_id ORDER BY orden, id;
+END$$
+DELIMITER ;
+
+DROP PROCEDURE IF EXISTS sp_renombrar_celula;
+DELIMITER $$
+CREATE PROCEDURE sp_renombrar_celula (
+  IN p_id INT,
+  IN p_nombre VARCHAR(255)
+)
+BEGIN
+  UPDATE celulas SET nombre = p_nombre WHERE id = p_id;
+  SELECT * FROM celulas WHERE id = p_id;
+END$$
+DELIMITER ;
+
+DROP PROCEDURE IF EXISTS sp_eliminar_celula;
+DELIMITER $$
+CREATE PROCEDURE sp_eliminar_celula (
+  IN p_id INT
+)
+BEGIN
+  DELETE FROM celulas WHERE id = p_id;
 END$$
 DELIMITER ;
 
@@ -611,20 +834,21 @@ END$$
 DELIMITER ;
 
 -- ========================================
--- 8. STORED PROCEDURES: SPRINTS (plantilla global)
+-- 8. STORED PROCEDURES: SPRINTS (por PI)
 -- ========================================
--- Se generan en lote: fecha de inicio + duración en días + cantidad ->
--- arma N sprints consecutivos sin superponerse, compartidos por todos los
--- proyectos. Si ya hay sprints cargados, sigue numerando a partir del
--- último. La primera vez que se genera (todavía no hay ningún sprint),
--- si se pide una "Priorización" (p_dias_priorizacion > 0) se crea un
--- período previo al Sprint 1 (numero=0, tipo='priorizacion') — es la
--- "Zona Gris" que se ve en el Gantt antes de la línea de sprints. Se
--- crea una única vez: si ya existe, se ignora p_dias_priorizacion.
+-- Se generan en lote DENTRO de un PI: fecha de inicio + duración en días +
+-- cantidad -> arma N sprints consecutivos sin superponerse. Si el PI ya
+-- tiene sprints cargados, sigue numerando a partir del último. La primera
+-- vez que se genera para ese PI (todavía no hay ningún sprint del PI), si
+-- se pide una "Priorización" (p_dias_priorizacion > 0) se crea un período
+-- previo al Sprint 1 (numero=0, tipo='priorizacion') — es la "Zona Gris"
+-- que se ve en el Gantt antes de la línea de sprints. Se crea una única
+-- vez por PI: si ya existe, se ignora p_dias_priorizacion.
 
 DROP PROCEDURE IF EXISTS sp_generar_sprints;
 DELIMITER $$
 CREATE PROCEDURE sp_generar_sprints (
+  IN p_pi_id INT,
   IN p_fecha_inicio DATE,
   IN p_dias_duracion INT,
   IN p_cantidad INT,
@@ -639,40 +863,60 @@ BEGIN
 
   SET v_fecha_inicio = p_fecha_inicio;
 
-  SELECT COUNT(*) INTO v_existe_priorizacion FROM sprints WHERE tipo = 'priorizacion';
+  SELECT COUNT(*) INTO v_existe_priorizacion
+  FROM sprints WHERE pi_id = p_pi_id AND tipo = 'priorizacion';
 
   IF v_existe_priorizacion = 0 AND p_dias_priorizacion > 0 THEN
     SET v_fecha_fin = DATE_ADD(v_fecha_inicio, INTERVAL (p_dias_priorizacion - 1) DAY);
 
-    INSERT INTO sprints (numero, tipo, fecha_inicio, fecha_fin)
-    VALUES (0, 'priorizacion', v_fecha_inicio, v_fecha_fin);
+    INSERT INTO sprints (pi_id, numero, tipo, fecha_inicio, fecha_fin)
+    VALUES (p_pi_id, 0, 'priorizacion', v_fecha_inicio, v_fecha_fin);
 
     SET v_fecha_inicio = DATE_ADD(v_fecha_fin, INTERVAL 1 DAY);
   END IF;
 
-  SELECT COALESCE(MAX(numero), 0) INTO v_max_numero FROM sprints WHERE tipo = 'sprint';
+  SELECT COALESCE(MAX(numero), 0) INTO v_max_numero
+  FROM sprints WHERE pi_id = p_pi_id AND tipo = 'sprint';
 
   SET v_numero = v_max_numero + 1;
 
   WHILE v_numero <= v_max_numero + p_cantidad DO
     SET v_fecha_fin = DATE_ADD(v_fecha_inicio, INTERVAL (p_dias_duracion - 1) DAY);
 
-    INSERT INTO sprints (numero, tipo, fecha_inicio, fecha_fin)
-    VALUES (v_numero, 'sprint', v_fecha_inicio, v_fecha_fin);
+    INSERT INTO sprints (pi_id, numero, tipo, fecha_inicio, fecha_fin)
+    VALUES (p_pi_id, v_numero, 'sprint', v_fecha_inicio, v_fecha_fin);
 
     SET v_fecha_inicio = DATE_ADD(v_fecha_fin, INTERVAL 1 DAY);
     SET v_numero = v_numero + 1;
   END WHILE;
 
-  SELECT * FROM sprints ORDER BY numero;
+  SELECT * FROM sprints WHERE pi_id = p_pi_id ORDER BY numero;
 END$$
 DELIMITER ;
 
-DROP PROCEDURE IF EXISTS sp_listar_sprints;
+DROP PROCEDURE IF EXISTS sp_listar_sprints_pi;
 DELIMITER $$
-CREATE PROCEDURE sp_listar_sprints ()
+CREATE PROCEDURE sp_listar_sprints_pi (
+  IN p_pi_id INT
+)
 BEGIN
-  SELECT * FROM sprints ORDER BY numero;
+  SELECT * FROM sprints WHERE pi_id = p_pi_id ORDER BY numero;
+END$$
+DELIMITER ;
+
+-- Sprints que le corresponden a un proyecto = los del PI al que pertenece.
+-- Es lo que consume el Gantt (planificado y real).
+DROP PROCEDURE IF EXISTS sp_listar_sprints_proyecto;
+DELIMITER $$
+CREATE PROCEDURE sp_listar_sprints_proyecto (
+  IN p_proyecto_id INT
+)
+BEGIN
+  SELECT s.*
+  FROM sprints s
+  JOIN proyectos pr ON pr.pi_id = s.pi_id
+  WHERE pr.id = p_proyecto_id
+  ORDER BY s.numero;
 END$$
 DELIMITER ;
 

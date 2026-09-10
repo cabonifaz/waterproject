@@ -7,6 +7,7 @@
 import { useState } from 'react';
 
 interface Props {
+  piId: number;
   siguienteNumero: number;
   mostrarPriorizacion: boolean;
   onSuccess: () => void;
@@ -16,7 +17,7 @@ const inputClass =
   'w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500';
 const labelClass = 'block text-sm font-medium text-gray-700 mb-1';
 
-const FormularioSprints = ({ siguienteNumero, mostrarPriorizacion, onSuccess }: Props) => {
+const FormularioSprints = ({ piId, siguienteNumero, mostrarPriorizacion, onSuccess }: Props) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fechaInicio, setFechaInicio] = useState(new Date().toISOString().split('T')[0]);
@@ -29,7 +30,7 @@ const FormularioSprints = ({ siguienteNumero, mostrarPriorizacion, onSuccess }: 
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/sprints', {
+      const res = await fetch(`/api/pis/${piId}/sprints`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
