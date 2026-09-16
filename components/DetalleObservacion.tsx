@@ -23,6 +23,7 @@ const DetalleObservacion = ({ observacionId, miembrosProyecto, onVolver, onCambi
   const [error, setError] = useState<string | null>(null);
   const [nota, setNota] = useState('');
   const [cambiandoEstado, setCambiandoEstado] = useState(false);
+  const [cambiandoLevantada, setCambiandoLevantada] = useState(false);
   const [subiendoImagen, setSubiendoImagen] = useState(false);
   const [imagenAmpliada, setImagenAmpliada] = useState<number | null>(null);
 
@@ -62,6 +63,27 @@ const DetalleObservacion = ({ observacionId, miembrosProyecto, onVolver, onCambi
       setError(err instanceof Error ? err.message : 'No se pudo cambiar el estado');
     } finally {
       setCambiandoEstado(false);
+    }
+  };
+
+  const handleToggleLevantada = async () => {
+    if (!obs) return;
+    setCambiandoLevantada(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/observaciones/${observacionId}/levantada`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ levantada: !obs.levantada }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al actualizar la observación');
+      await cargar();
+      onCambio();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo actualizar la observación');
+    } finally {
+      setCambiandoLevantada(false);
     }
   };
 
@@ -112,6 +134,25 @@ const DetalleObservacion = ({ observacionId, miembrosProyecto, onVolver, onCambi
         </div>
       </div>
 
+      {obs.hu_cerrada && (
+        <p className="text-xs text-gray-400 italic">
+          La HU ya está cerrada — el estado y el flag de levantada quedan de solo lectura.
+        </p>
+      )}
+
+      <div>
+        <p className="text-sm font-semibold text-gray-700 mb-2">¿Se levantó?</p>
+        <button
+          onClick={handleToggleLevantada}
+          disabled={obs.hu_cerrada || cambiandoLevantada}
+          className={`px-3 py-1.5 rounded-full text-xs font-semibold border-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+            obs.levantada ? 'bg-green-100 text-green-800 border-green-300' : 'bg-amber-100 text-amber-800 border-amber-300'
+          }`}
+        >
+          {cambiandoLevantada ? '...' : obs.levantada ? '✓ Levantada' : '⏳ Pendiente'}
+        </button>
+      </div>
+
       <div>
         <p className="text-sm font-semibold text-gray-700 mb-2">Estado</p>
         <div className="flex flex-wrap gap-2">
@@ -119,8 +160,8 @@ const DetalleObservacion = ({ observacionId, miembrosProyecto, onVolver, onCambi
             <button
               key={e}
               onClick={() => handleCambiarEstado(e)}
-              disabled={cambiandoEstado || obs.estado === e}
-              className={`px-3 py-1.5 rounded-full text-xs font-semibold border-2 transition-colors disabled:cursor-default ${
+              disabled={cambiandoEstado || obs.estado === e || obs.hu_cerrada}
+              className={`px-3 py-1.5 rounded-full text-xs font-semibold border-2 transition-colors disabled:cursor-default disabled:opacity-50 ${
                 obs.estado === e ? ESTADO_COLOR[e] : 'border-gray-200 text-gray-500 hover:border-gray-300'
               }`}
             >
@@ -128,13 +169,15 @@ const DetalleObservacion = ({ observacionId, miembrosProyecto, onVolver, onCambi
             </button>
           ))}
         </div>
-        <input
-          type="text"
-          value={nota}
-          onChange={(e) => setNota(e.target.value)}
-          placeholder="Nota opcional para el próximo cambio de estado..."
-          className="mt-2 w-full text-sm px-3 py-1.5 border border-gray-300 rounded-lg"
-        />
+        {!obs.hu_cerrada && (
+          <input
+            type="text"
+            value={nota}
+            onChange={(e) => setNota(e.target.value)}
+            placeholder="Nota opcional para el próximo cambio de estado..."
+            className="mt-2 w-full text-sm px-3 py-1.5 border border-gray-300 rounded-lg"
+          />
+        )}
       </div>
 
       <div>

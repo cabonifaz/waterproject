@@ -244,8 +244,12 @@ export interface Observacion {
   titulo: string;
   descripcion?: string;
   estado: EstadoObservacion;
+  levantada: boolean;
   created_at: Date;
   updated_at: Date;
+  // Solo viene poblado desde sp_obtener_observacion (join a
+  // historias_usuario) — para saber si hay que deshabilitar la edición.
+  hu_cerrada?: boolean;
 }
 
 // Fila devuelta por sp_listar_observaciones_hu: la observación + sus
@@ -286,6 +290,7 @@ export interface ObservacionCompleta extends ObservacionConContadores {
 export interface ObservacionInventario extends ObservacionConContadores {
   huCodigo?: string;
   huTitulo: string;
+  huCerrada: boolean;
   epicaId: number;
   epicaNombre: string;
   moduloId: number;

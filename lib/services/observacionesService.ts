@@ -50,6 +50,13 @@ export async function eliminarObservacion(id: number): Promise<void> {
   await executeProcedure('sp_eliminar_observacion', [id]);
 }
 
+// Toggle independiente del flujo de 5 estados: "¿ya se levantó/resolvió
+// esta observación?". El SP rechaza el cambio si la HU dueña ya cerró.
+export async function marcarObservacionLevantada(id: number, levantada: boolean): Promise<Observacion> {
+  const resultado = await executeProcedure<Observacion>('sp_marcar_observacion_levantada', [id, levantada]);
+  return resultado[0];
+}
+
 export async function listarHistorialObservacion(observacionId: number): Promise<HistorialObservacion[]> {
   return executeProcedure<HistorialObservacion>('sp_listar_historial_observacion', [observacionId]);
 }
@@ -87,10 +94,12 @@ export interface FilaObservacionProyecto {
   titulo: string;
   descripcion?: string;
   estado: EstadoObservacion;
+  levantada: boolean;
   created_at: Date;
   updated_at: Date;
   hu_codigo?: string;
   hu_titulo: string;
+  hu_cerrada: boolean;
   epica_id: number;
   epica_nombre: string;
   modulo_id: number;

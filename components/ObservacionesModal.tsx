@@ -14,12 +14,13 @@ import { ESTADO_LABEL, ESTADO_COLOR, formatFecha } from '@/lib/observacionesUI';
 interface Props {
   historiaUsuarioId: number;
   huEtiqueta: string;
+  cerrada: boolean;
   miembrosProyecto: Miembro[];
   onClose: () => void;
   onCambio: () => void; // avisa al Gantt para refrescar el badge de conteo
 }
 
-const ObservacionesModal = ({ historiaUsuarioId, huEtiqueta, miembrosProyecto, onClose, onCambio }: Props) => {
+const ObservacionesModal = ({ historiaUsuarioId, huEtiqueta, cerrada, miembrosProyecto, onClose, onCambio }: Props) => {
   const [observaciones, setObservaciones] = useState<ObservacionConContadores[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -28,6 +29,7 @@ const ObservacionesModal = ({ historiaUsuarioId, huEtiqueta, miembrosProyecto, o
   const [titulo, setTitulo] = useState('');
   const [descripcion, setDescripcion] = useState('');
   const [creando, setCreando] = useState(false);
+  const [cambiandoLevantada, setCambiandoLevantada] = useState<number | null>(null);
 
   const cargar = useCallback(async () => {
     try {
@@ -70,6 +72,27 @@ const ObservacionesModal = ({ historiaUsuarioId, huEtiqueta, miembrosProyecto, o
     }
   };
 
+  const handleToggleLevantada = async (o: ObservacionConContadores, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setCambiandoLevantada(o.id);
+    setError(null);
+    try {
+      const res = await fetch(`/api/observaciones/${o.id}/levantada`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ levantada: !o.levantada }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al actualizar la observación');
+      await cargar();
+      onCambio();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo actualizar la observación');
+    } finally {
+      setCambiandoLevantada(null);
+    }
+  };
+
   return (
     <Modal
       titulo={detalleId != null ? 'Detalle de Observación' : `📋 Observaciones — ${huEtiqueta}`}
@@ -93,14 +116,20 @@ const ObservacionesModal = ({ historiaUsuarioId, huEtiqueta, miembrosProyecto, o
         <div className="space-y-4">
           {error && <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>}
 
-          <button
-            onClick={() => setMostrarForm((v) => !v)}
-            className="text-sm text-blue-600 hover:text-blue-800 font-semibold"
-          >
-            {mostrarForm ? '✕ Cancelar' : '➕ Nueva observación'}
-          </button>
+          {cerrada ? (
+            <p className="text-xs text-gray-400 italic">
+              La HU ya está cerrada — no se pueden agregar ni modificar observaciones.
+            </p>
+          ) : (
+            <button
+              onClick={() => setMostrarForm((v) => !v)}
+              className="text-sm text-blue-600 hover:text-blue-800 font-semibold"
+            >
+              {mostrarForm ? '✕ Cancelar' : '➕ Nueva observación'}
+            </button>
+          )}
 
-          {mostrarForm && (
+          {mostrarForm && !cerrada && (
             <form onSubmit={handleCrear} className="space-y-3 bg-gray-50 p-4 rounded-lg">
               <input
                 type="text"
@@ -136,16 +165,39 @@ const ObservacionesModal = ({ historiaUsuarioId, huEtiqueta, miembrosProyecto, o
 
           <div className="space-y-2">
             {observaciones.map((o) => (
-              <button
+              <div
                 key={o.id}
+                role="button"
+                tabIndex={0}
                 onClick={() => setDetalleId(o.id)}
-                className="w-full text-left p-3 border border-gray-200 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition-colors"
+                onKeyDown={(e) => e.key === 'Enter' && setDetalleId(o.id)}
+                className="w-full text-left p-3 border border-gray-200 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition-colors cursor-pointer"
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-semibold text-sm text-gray-900 truncate">{o.titulo}</span>
-                  <span className={`flex-shrink-0 px-2 py-0.5 rounded-full text-[11px] font-semibold border ${ESTADO_COLOR[o.estado]}`}>
-                    {ESTADO_LABEL[o.estado]}
-                  </span>
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold border ${ESTADO_COLOR[o.estado]}`}>
+                      {ESTADO_LABEL[o.estado]}
+                    </span>
+                    <button
+                      onClick={(e) => handleToggleLevantada(o, e)}
+                      disabled={cerrada || cambiandoLevantada === o.id}
+                      title={
+                        cerrada
+                          ? 'La HU está cerrada — no se puede modificar'
+                          : o.levantada
+                          ? 'Marcar como pendiente'
+                          : 'Marcar como levantada'
+                      }
+                      className={`px-2 py-0.5 rounded-full text-[11px] font-semibold border disabled:opacity-50 disabled:cursor-not-allowed ${
+                        o.levantada
+                          ? 'bg-green-100 text-green-800 border-green-300'
+                          : 'bg-amber-100 text-amber-800 border-amber-300'
+                      }`}
+                    >
+                      {o.levantada ? '✓ Levantada' : '⏳ Pendiente'}
+                    </button>
+                  </div>
                 </div>
                 <div className="flex items-center gap-3 mt-1 text-[11px] text-gray-400">
                   <span>{formatFecha(o.created_at)}</span>
@@ -158,7 +210,7 @@ const ObservacionesModal = ({ historiaUsuarioId, huEtiqueta, miembrosProyecto, o
                     </>
                   )}
                 </div>
-              </button>
+              </div>
             ))}
           </div>
         </div>

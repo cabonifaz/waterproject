@@ -36,6 +36,7 @@ interface FilaGantt {
   porcentajeCumplimiento?: number | null;
   semaforo?: Semaforo;
   diasRestantesEstimados?: number | null;
+  huCerrada?: boolean; // historias_usuario.cerrada — para bloquear edición de observaciones
 }
 
 type NivelDivisor = 'etapa' | 'modulo' | 'epica';
@@ -253,6 +254,7 @@ function construirItemsRender(estructura: EstructuraProyecto, indexReal: IndiceM
               porcentajeCumplimiento: calc.porcentajeCumplimiento,
               semaforo: calc.semaforo,
               diasRestantesEstimados: h.dias_restantes_estimados,
+              huCerrada: h.cerrada,
             },
           });
         }
@@ -343,7 +345,7 @@ export default function GanttRealPage() {
   const [conteoObservaciones, setConteoObservaciones] = useState<Map<number, { total: number; abiertas: number }>>(
     new Map()
   );
-  const [modalObservacionesHU, setModalObservacionesHU] = useState<{ id: number; etiqueta: string } | null>(null);
+  const [modalObservacionesHU, setModalObservacionesHU] = useState<{ id: number; etiqueta: string; cerrada: boolean } | null>(null);
   const [modalTituloCompleto, setModalTituloCompleto] = useState<string | null>(null);
   const [editandoDiasRestantes, setEditandoDiasRestantes] = useState<{
     tipo: 'hu' | 'tareaMatriz';
@@ -1094,7 +1096,7 @@ export default function GanttRealPage() {
                                 const conteo = conteoObservaciones.get(fila.id);
                                 return (
                                   <button
-                                    onClick={() => setModalObservacionesHU({ id: fila.id, etiqueta: fila.etiqueta })}
+                                    onClick={() => setModalObservacionesHU({ id: fila.id, etiqueta: fila.etiqueta, cerrada: fila.huCerrada ?? false })}
                                     title="Observaciones de certificación"
                                     className={`flex-shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold leading-none border ${
                                       conteo && conteo.abiertas > 0
@@ -1166,6 +1168,7 @@ export default function GanttRealPage() {
         <ObservacionesModal
           historiaUsuarioId={modalObservacionesHU.id}
           huEtiqueta={modalObservacionesHU.etiqueta}
+          cerrada={modalObservacionesHU.cerrada}
           miembrosProyecto={estructura.miembros}
           onClose={() => setModalObservacionesHU(null)}
           onCambio={cargarConteoObservaciones}

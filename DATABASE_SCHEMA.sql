@@ -1756,11 +1756,20 @@ CREATE TABLE IF NOT EXISTS observaciones (
   titulo VARCHAR(255) NOT NULL,
   descripcion LONGTEXT,
   estado ENUM('en_atencion', 'en_analisis', 'en_publicacion', 're_test', 'certificada') NOT NULL DEFAULT 'en_atencion',
+  levantada BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (historia_usuario_id) REFERENCES historias_usuario(id) ON DELETE CASCADE,
   INDEX idx_obs_hu (historia_usuario_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- levantada: flag simple e independiente del flujo de 5 estados —
+-- "¿ya se levantó/resolvió esta observación?" sin pasar por todo el
+-- workflow de certificación. Solo se puede tocar (crear observación,
+-- cambiar estado, marcar levantada) mientras la HU dueña no esté cerrada
+-- (historias_usuario.cerrada) — ver sp_crear_observacion,
+-- sp_cambiar_estado_observacion y sp_marcar_observacion_levantada.
+ALTER TABLE observaciones ADD COLUMN levantada BOOLEAN NOT NULL DEFAULT FALSE AFTER estado;
 
 CREATE TABLE IF NOT EXISTS observaciones_historial (
   id INT AUTO_INCREMENT PRIMARY KEY,
@@ -1805,6 +1814,13 @@ CREATE PROCEDURE sp_crear_observacion (
 )
 BEGIN
   DECLARE v_id INT;
+  DECLARE v_cerrada BOOLEAN;
+
+  SELECT cerrada INTO v_cerrada FROM historias_usuario WHERE id = p_historia_usuario_id;
+  IF v_cerrada THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'No se pueden agregar observaciones: la historia de usuario ya está cerrada.';
+  END IF;
+
   INSERT INTO observaciones (historia_usuario_id, titulo, descripcion, estado)
   VALUES (p_historia_usuario_id, p_titulo, p_descripcion, 'en_atencion');
   SET v_id = LAST_INSERT_ID();
@@ -1829,13 +1845,18 @@ BEGIN
 END$$
 DELIMITER ;
 
+-- Incluye hu_cerrada (join a historias_usuario) para que el frontend
+-- pueda deshabilitar la edición sin una consulta aparte.
 DROP PROCEDURE IF EXISTS sp_obtener_observacion;
 DELIMITER $$
 CREATE PROCEDURE sp_obtener_observacion (
   IN p_id INT
 )
 BEGIN
-  SELECT * FROM observaciones WHERE id = p_id;
+  SELECT o.*, h.cerrada AS hu_cerrada
+  FROM observaciones o
+  JOIN historias_usuario h ON o.historia_usuario_id = h.id
+  WHERE o.id = p_id;
 END$$
 DELIMITER ;
 
@@ -1848,17 +1869,51 @@ CREATE PROCEDURE sp_cambiar_estado_observacion (
 )
 BEGIN
   DECLARE v_estado_actual VARCHAR(20);
+  DECLARE v_cerrada BOOLEAN;
 
-  SELECT estado INTO v_estado_actual FROM observaciones WHERE id = p_id;
+  SELECT o.estado, h.cerrada INTO v_estado_actual, v_cerrada
+  FROM observaciones o JOIN historias_usuario h ON o.historia_usuario_id = h.id
+  WHERE o.id = p_id;
 
   IF v_estado_actual IS NULL THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'La observación no existe.';
+  END IF;
+  IF v_cerrada THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'No se puede cambiar el estado: la historia de usuario ya está cerrada.';
   END IF;
 
   UPDATE observaciones SET estado = p_estado_nuevo WHERE id = p_id;
   INSERT INTO observaciones_historial (observacion_id, estado_anterior, estado_nuevo, nota)
   VALUES (p_id, v_estado_actual, p_estado_nuevo, p_nota);
 
+  SELECT * FROM observaciones WHERE id = p_id;
+END$$
+DELIMITER ;
+
+-- Toggle independiente del flujo de 5 estados: "¿ya se levantó/resolvió
+-- esta observación?". Mismo candado que el resto: no se puede tocar si
+-- la HU dueña ya está cerrada.
+DROP PROCEDURE IF EXISTS sp_marcar_observacion_levantada;
+DELIMITER $$
+CREATE PROCEDURE sp_marcar_observacion_levantada (
+  IN p_id INT,
+  IN p_levantada BOOLEAN
+)
+BEGIN
+  DECLARE v_cerrada BOOLEAN;
+
+  SELECT h.cerrada INTO v_cerrada
+  FROM observaciones o JOIN historias_usuario h ON o.historia_usuario_id = h.id
+  WHERE o.id = p_id;
+
+  IF v_cerrada IS NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'La observación no existe.';
+  END IF;
+  IF v_cerrada THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'No se puede modificar: la historia de usuario ya está cerrada.';
+  END IF;
+
+  UPDATE observaciones SET levantada = p_levantada WHERE id = p_id;
   SELECT * FROM observaciones WHERE id = p_id;
 END$$
 DELIMITER ;
@@ -1989,8 +2044,8 @@ CREATE PROCEDURE sp_listar_observaciones_proyecto (
 )
 BEGIN
   SELECT
-    o.id, o.historia_usuario_id, o.titulo, o.descripcion, o.estado, o.created_at, o.updated_at,
-    h.codigo AS hu_codigo, h.titulo AS hu_titulo,
+    o.id, o.historia_usuario_id, o.titulo, o.descripcion, o.estado, o.levantada, o.created_at, o.updated_at,
+    h.codigo AS hu_codigo, h.titulo AS hu_titulo, h.cerrada AS hu_cerrada,
     e.id AS epica_id, e.nombre AS epica_nombre,
     m.id AS modulo_id, m.nombre AS modulo_nombre,
     et.id AS etapa_id, et.nombre AS etapa_nombre
