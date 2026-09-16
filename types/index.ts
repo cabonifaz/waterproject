@@ -97,6 +97,7 @@ export interface Epica {
   id: number;
   modulo_id: number;
   nombre: string;
+  activa: boolean;
   orden: number;
   created_at: Date;
   updated_at: Date;

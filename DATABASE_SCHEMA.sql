@@ -105,12 +105,20 @@ CREATE TABLE IF NOT EXISTS epicas (
   id INT AUTO_INCREMENT PRIMARY KEY,
   modulo_id INT NOT NULL,
   nombre VARCHAR(500) NOT NULL,
+  activa BOOLEAN NOT NULL DEFAULT TRUE,
   orden INT NOT NULL DEFAULT 0,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (modulo_id) REFERENCES modulos(id) ON DELETE CASCADE,
   UNIQUE KEY uq_modulo_epica (modulo_id, nombre)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Soft-delete de épicas, mismo patrón que historias_usuario.activa: la
+-- unique key (modulo_id, nombre) sigue "reservando" el nombre aunque esté
+-- inactiva, así que el importador de Excel debe matchear por nombre
+-- contra épicas activas E inactivas y reactivar en vez de intentar crear
+-- una épica duplicada (que fallaría por la unique key).
+ALTER TABLE epicas ADD COLUMN activa BOOLEAN NOT NULL DEFAULT TRUE AFTER nombre;
 
 -- dias_restantes_estimados: reestimación manual de "cuánto falta" mientras
 -- la HU sigue abierta (NULL = todavía no se cargó ninguna estimación). Es
@@ -721,7 +729,47 @@ CREATE PROCEDURE sp_listar_epicas_modulo (
   IN p_modulo_id INT
 )
 BEGIN
+  SELECT * FROM epicas WHERE modulo_id = p_modulo_id AND activa = TRUE ORDER BY orden, id;
+END$$
+DELIMITER ;
+
+-- Igual que sp_listar_epicas_modulo pero incluye las eliminadas. Solo lo
+-- usa el importador de Excel, para matchear por nombre contra épicas
+-- eliminadas y reactivarlas en vez de intentar crear una duplicada (ver
+-- comentario en la unique key uq_modulo_epica).
+DROP PROCEDURE IF EXISTS sp_listar_epicas_modulo_todas;
+DELIMITER $$
+CREATE PROCEDURE sp_listar_epicas_modulo_todas (
+  IN p_modulo_id INT
+)
+BEGIN
   SELECT * FROM epicas WHERE modulo_id = p_modulo_id ORDER BY orden, id;
+END$$
+DELIMITER ;
+
+-- Soft-delete: oculta la épica (y dentro de ella, sus HU siguen
+-- existiendo pero también dejan de listarse porque cuelgan de una épica
+-- que ya no aparece en el árbol).
+DROP PROCEDURE IF EXISTS sp_eliminar_epica;
+DELIMITER $$
+CREATE PROCEDURE sp_eliminar_epica (
+  IN p_id INT
+)
+BEGIN
+  UPDATE epicas SET activa = FALSE WHERE id = p_id;
+END$$
+DELIMITER ;
+
+-- Revierte el soft-delete. Solo se llama automáticamente desde el
+-- importador de Excel cuando una fila matchea por nombre a una épica
+-- eliminada.
+DROP PROCEDURE IF EXISTS sp_reactivar_epica;
+DELIMITER $$
+CREATE PROCEDURE sp_reactivar_epica (
+  IN p_id INT
+)
+BEGIN
+  UPDATE epicas SET activa = TRUE WHERE id = p_id;
 END$$
 DELIMITER ;
 

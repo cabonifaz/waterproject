@@ -13,6 +13,7 @@ interface Props {
 interface Resultado {
   epicasCreadas: number;
   epicasReusadas: number;
+  epicasReactivadas: number;
   huCreadas: number;
   huReactivadas: number;
   huOmitidas: number;
@@ -85,7 +86,8 @@ const FormularioImportarExcel = ({ moduloId, onSuccess }: Props) => {
       {resultado && (
         <div className="p-4 bg-green-50 border border-green-200 rounded-lg text-sm space-y-1">
           <p className="font-semibold text-green-800">
-            ✓ {resultado.epicasCreadas} épica(s) nueva(s), {resultado.epicasReusadas} reusada(s), {resultado.huCreadas}{' '}
+            ✓ {resultado.epicasCreadas} épica(s) nueva(s), {resultado.epicasReusadas} reusada(s)
+            {resultado.epicasReactivadas > 0 && `, ${resultado.epicasReactivadas} reactivada(s)`}, {resultado.huCreadas}{' '}
             HU creada(s)
             {resultado.huReactivadas > 0 && `, ${resultado.huReactivadas} reactivada(s)`}
             {resultado.huOmitidas > 0 && `, ${resultado.huOmitidas} omitida(s) por ya existir`}.

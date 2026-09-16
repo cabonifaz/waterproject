@@ -19,12 +19,17 @@ interface Props {
 const ModuloSeccion = ({ modulo, miembrosProyecto, totalGeneral, onRefrescar }: Props) => {
   const [mostrarForm, setMostrarForm] = useState(false);
   const [mostrarImportar, setMostrarImportar] = useState(false);
+  const [expandido, setExpandido] = useState(true);
 
   return (
     <div className="ml-4 mt-3 rounded-lg overflow-hidden border border-indigo-200">
       <div className="flex justify-between items-center px-3 py-2 bg-indigo-200">
-        <h3 className="font-bold text-indigo-900 text-sm">📦 {modulo.nombre}</h3>
-        <div className="flex gap-3">
+        <button onClick={() => setExpandido((v) => !v)} className="flex-1 text-left">
+          <h3 className="font-bold text-indigo-900 text-sm">
+            {expandido ? '▼' : '▶'} 📦 {modulo.nombre}
+          </h3>
+        </button>
+        <div className="flex gap-3 flex-shrink-0">
           <button
             onClick={() => setMostrarImportar(true)}
             className="text-xs text-indigo-800 hover:text-indigo-950 font-semibold"
@@ -40,21 +45,23 @@ const ModuloSeccion = ({ modulo, miembrosProyecto, totalGeneral, onRefrescar }: 
         </div>
       </div>
 
-      <div className="bg-indigo-50 p-3">
-        {modulo.epicas.length === 0 && (
-          <p className="ml-4 text-xs text-gray-400">Sin épicas / funcionalidades todavía</p>
-        )}
+      {expandido && (
+        <div className="bg-indigo-50 p-3">
+          {modulo.epicas.length === 0 && (
+            <p className="ml-4 text-xs text-gray-400">Sin épicas / funcionalidades todavía</p>
+          )}
 
-        {modulo.epicas.map((epica) => (
-          <EpicaSeccion
-            key={epica.id}
-            epica={epica}
-            miembrosProyecto={miembrosProyecto}
-            totalGeneral={totalGeneral}
-            onRefrescar={onRefrescar}
-          />
-        ))}
-      </div>
+          {modulo.epicas.map((epica) => (
+            <EpicaSeccion
+              key={epica.id}
+              epica={epica}
+              miembrosProyecto={miembrosProyecto}
+              totalGeneral={totalGeneral}
+              onRefrescar={onRefrescar}
+            />
+          ))}
+        </div>
+      )}
 
       {mostrarForm && (
         <Modal titulo="Nueva Épica / Funcionalidad" onClose={() => setMostrarForm(false)}>

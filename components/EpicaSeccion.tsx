@@ -38,6 +38,8 @@ const EpicaSeccion = ({ epica, miembrosProyecto, totalGeneral, onRefrescar }: Pr
   const [mostrarForm, setMostrarForm] = useState(false);
   const [cerrando, setCerrando] = useState<number | null>(null);
   const [eliminando, setEliminando] = useState<number | null>(null);
+  const [eliminandoEpica, setEliminandoEpica] = useState(false);
+  const [expandido, setExpandido] = useState(true);
   const diasEpica = diasPlanificadosEpica(epica);
   const porcentajeEpica = calcularPorcentaje(diasEpica, totalGeneral);
 
@@ -64,26 +66,58 @@ const EpicaSeccion = ({ epica, miembrosProyecto, totalGeneral, onRefrescar }: Pr
     }
   };
 
+  const handleEliminarEpica = async () => {
+    if (
+      !confirm(
+        `¿Eliminar la épica "${epica.nombre}"?\n\nSe oculta junto con sus historias de usuario. No se borra de forma definitiva: se puede recuperar volviendo a subirla en un Excel con el mismo nombre.`
+      )
+    ) {
+      return;
+    }
+    setEliminandoEpica(true);
+    try {
+      await fetch(`/api/epicas/${epica.id}`, { method: 'DELETE' });
+      onRefrescar();
+    } finally {
+      setEliminandoEpica(false);
+    }
+  };
+
   return (
     <div className="ml-4 mt-3 rounded-lg overflow-hidden border border-blue-200">
       <div className="flex justify-between items-center px-3 py-1.5 bg-blue-100">
-        <h4 className="font-semibold text-blue-900 text-xs">
-          🎯 {epica.nombre}
-          <span className="font-normal text-blue-700">
-            {' '}
-            ({diasEpica} día{diasEpica === 1 ? '' : 's'}
-            {porcentajeEpica != null ? ` · ${porcentajeEpica}%` : ''})
-          </span>
-        </h4>
         <button
-          onClick={() => setMostrarForm(true)}
-          className="text-xs text-blue-700 hover:text-blue-900 font-semibold"
+          onClick={() => setExpandido((v) => !v)}
+          className="flex-1 text-left"
         >
-          ➕ Historia de Usuario
+          <h4 className="font-semibold text-blue-900 text-xs">
+            {expandido ? '▼' : '▶'} 🎯 {epica.nombre}
+            <span className="font-normal text-blue-700">
+              {' '}
+              ({diasEpica} día{diasEpica === 1 ? '' : 's'}
+              {porcentajeEpica != null ? ` · ${porcentajeEpica}%` : ''})
+            </span>
+          </h4>
         </button>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <button
+            onClick={() => setMostrarForm(true)}
+            className="text-xs text-blue-700 hover:text-blue-900 font-semibold"
+          >
+            ➕ Historia de Usuario
+          </button>
+          <button
+            onClick={handleEliminarEpica}
+            disabled={eliminandoEpica}
+            title="Eliminar épica"
+            className="text-xs text-red-500 hover:text-red-700 disabled:opacity-50"
+          >
+            {eliminandoEpica ? '...' : '🗑️'}
+          </button>
+        </div>
       </div>
 
-      {epica.historias.length > 0 && (
+      {expandido && epica.historias.length > 0 && (
         <div className="bg-white overflow-hidden">
           <table className="w-full text-xs">
             <thead className="bg-slate-50 border-b">
