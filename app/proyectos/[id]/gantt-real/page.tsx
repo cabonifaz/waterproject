@@ -44,7 +44,7 @@ type ItemRender =
   | { kind: 'divisor'; nivel: NivelDivisor; label: string; key: string; diasGrupo?: number }
   | { kind: 'fila'; fila: FilaGantt };
 
-const ANCHO_ACTIVIDAD = 220;
+const ANCHO_ACTIVIDAD = 260;
 const ANCHO_H = 36;
 const ANCHO_MIEMBROS = 96;
 const ANCHO_PANEL_FIJO = ANCHO_H + ANCHO_ACTIVIDAD + ANCHO_MIEMBROS;
@@ -344,6 +344,7 @@ export default function GanttRealPage() {
     new Map()
   );
   const [modalObservacionesHU, setModalObservacionesHU] = useState<{ id: number; etiqueta: string } | null>(null);
+  const [modalTituloCompleto, setModalTituloCompleto] = useState<string | null>(null);
   const [editandoDiasRestantes, setEditandoDiasRestantes] = useState<{
     tipo: 'hu' | 'tareaMatriz';
     id: number;
@@ -1055,7 +1056,6 @@ export default function GanttRealPage() {
                           )}
                         </div>
                         <div
-                          title={fila.etiqueta}
                           style={{ width: ANCHO_ACTIVIDAD }}
                           className="h-full bg-white border px-2 py-1 pl-3 overflow-hidden flex-shrink-0"
                         >
@@ -1070,7 +1070,7 @@ export default function GanttRealPage() {
                                 {fila.porcentajeCumplimiento != null ? `${fila.porcentajeCumplimiento}%` : '—'}
                               </span>
                             )}
-                            <span className="min-w-0 break-words leading-tight">
+                            <span className="min-w-0 line-clamp-2 leading-tight break-words">
                               {fila.etiqueta}
                               {fila.diasPropios != null && (
                                 <span className="font-normal text-gray-400">
@@ -1080,6 +1080,13 @@ export default function GanttRealPage() {
                                 </span>
                               )}
                             </span>
+                            <button
+                              onClick={() => setModalTituloCompleto(fila.etiqueta)}
+                              title="Ver título completo"
+                              className="flex-shrink-0 text-gray-400 hover:text-gray-700 leading-none px-0.5"
+                            >
+                              ⋯
+                            </button>
                           </div>
                           <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                             {fila.tipo === 'hu' &&
@@ -1163,6 +1170,12 @@ export default function GanttRealPage() {
           onClose={() => setModalObservacionesHU(null)}
           onCambio={cargarConteoObservaciones}
         />
+      )}
+
+      {modalTituloCompleto && (
+        <Modal titulo="Actividad" onClose={() => setModalTituloCompleto(null)} ancho="max-w-md">
+          <p className="text-sm text-gray-800 break-words">{modalTituloCompleto}</p>
+        </Modal>
       )}
 
       {editandoDiasRestantes && (
