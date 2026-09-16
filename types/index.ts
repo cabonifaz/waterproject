@@ -115,6 +115,7 @@ export interface HistoriaUsuario {
   dias_restantes_estimados: number | null;
   cerrada: boolean;
   fecha_cierre?: Date;
+  activa: boolean;
   orden: number;
   created_at: Date;
   updated_at: Date;

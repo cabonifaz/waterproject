@@ -37,6 +37,7 @@ const formatFechaCorta = (fecha: string) =>
 const EpicaSeccion = ({ epica, miembrosProyecto, totalGeneral, onRefrescar }: Props) => {
   const [mostrarForm, setMostrarForm] = useState(false);
   const [cerrando, setCerrando] = useState<number | null>(null);
+  const [eliminando, setEliminando] = useState<number | null>(null);
   const diasEpica = diasPlanificadosEpica(epica);
   const porcentajeEpica = calcularPorcentaje(diasEpica, totalGeneral);
 
@@ -47,6 +48,19 @@ const EpicaSeccion = ({ epica, miembrosProyecto, totalGeneral, onRefrescar }: Pr
       onRefrescar();
     } finally {
       setCerrando(null);
+    }
+  };
+
+  const handleEliminar = async (id: number, titulo: string) => {
+    if (!confirm(`¿Eliminar la historia de usuario "${titulo}"?\n\nNo se borra de forma definitiva: se oculta y se puede recuperar volviendo a subirla en un Excel con el mismo código.`)) {
+      return;
+    }
+    setEliminando(id);
+    try {
+      await fetch(`/api/historias-usuario/${id}`, { method: 'DELETE' });
+      onRefrescar();
+    } finally {
+      setEliminando(null);
     }
   };
 
@@ -82,6 +96,7 @@ const EpicaSeccion = ({ epica, miembrosProyecto, totalGeneral, onRefrescar }: Pr
                 <th className="px-3 py-2 text-center font-semibold">Días Cert. (Gantt)</th>
                 <th className="px-3 py-2 text-center font-semibold">Miembros</th>
                 <th className="px-3 py-2 text-center font-semibold">Estado</th>
+                <th className="px-2 py-2 text-center font-semibold w-8"></th>
               </tr>
             </thead>
             <tbody>
@@ -128,6 +143,16 @@ const EpicaSeccion = ({ epica, miembrosProyecto, totalGeneral, onRefrescar }: Pr
                           {cerrando === h.id ? '...' : 'Cerrar'}
                         </button>
                       )}
+                    </td>
+                    <td className="px-2 py-2 text-center">
+                      <button
+                        onClick={() => handleEliminar(h.id, h.titulo)}
+                        disabled={eliminando === h.id}
+                        title="Eliminar historia de usuario"
+                        className="text-red-500 hover:text-red-700 disabled:opacity-50"
+                      >
+                        {eliminando === h.id ? '...' : '🗑️'}
+                      </button>
                     </td>
                   </tr>
                 );

@@ -131,6 +131,7 @@ CREATE TABLE IF NOT EXISTS historias_usuario (
   dias_restantes_estimados INT DEFAULT NULL,
   cerrada BOOLEAN NOT NULL DEFAULT FALSE,
   fecha_cierre DATE,
+  activa BOOLEAN NOT NULL DEFAULT TRUE,
   orden INT NOT NULL DEFAULT 0,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -139,6 +140,13 @@ CREATE TABLE IF NOT EXISTS historias_usuario (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 ALTER TABLE historias_usuario ADD COLUMN dias_restantes_estimados INT DEFAULT NULL AFTER dias_certificacion;
+
+-- Soft-delete: "eliminar" una HU desde la UI no la borra de verdad, solo la
+-- oculta (activa = FALSE), para poder recuperarla si fue un error. Al
+-- re-subir un Excel, la fila se matchea por código dentro de la misma
+-- épica contra HU activas E inactivas — si matchea una inactiva, se
+-- reactiva en vez de crear una HU duplicada (ver sp_listar_hu_epica_todas).
+ALTER TABLE historias_usuario ADD COLUMN activa BOOLEAN NOT NULL DEFAULT TRUE AFTER fecha_cierre;
 
 CREATE TABLE IF NOT EXISTS tareas_matrices (
   id INT AUTO_INCREMENT PRIMARY KEY,
@@ -753,6 +761,19 @@ CREATE PROCEDURE sp_listar_hu_epica (
   IN p_epica_id INT
 )
 BEGIN
+  SELECT * FROM historias_usuario WHERE epica_id = p_epica_id AND activa = TRUE ORDER BY orden, id;
+END$$
+DELIMITER ;
+
+-- Igual que sp_listar_hu_epica pero incluye las eliminadas (activa = FALSE).
+-- Solo lo usa el importador de Excel, para poder matchear por código contra
+-- HU eliminadas y reactivarlas en vez de crear un duplicado.
+DROP PROCEDURE IF EXISTS sp_listar_hu_epica_todas;
+DELIMITER $$
+CREATE PROCEDURE sp_listar_hu_epica_todas (
+  IN p_epica_id INT
+)
+BEGIN
   SELECT * FROM historias_usuario WHERE epica_id = p_epica_id ORDER BY orden, id;
 END$$
 DELIMITER ;
@@ -780,6 +801,32 @@ CREATE PROCEDURE sp_actualizar_dias_restantes_hu (
 BEGIN
   UPDATE historias_usuario SET dias_restantes_estimados = p_dias WHERE id = p_id;
   SELECT * FROM historias_usuario WHERE id = p_id;
+END$$
+DELIMITER ;
+
+-- Soft-delete: oculta la HU (deja de listarse) sin borrar sus días
+-- planificados/reales ni observaciones, para poder recuperarla.
+DROP PROCEDURE IF EXISTS sp_eliminar_historia_usuario;
+DELIMITER $$
+CREATE PROCEDURE sp_eliminar_historia_usuario (
+  IN p_id INT
+)
+BEGIN
+  UPDATE historias_usuario SET activa = FALSE WHERE id = p_id;
+END$$
+DELIMITER ;
+
+-- Revierte el soft-delete. Solo se llama automáticamente desde el
+-- importador de Excel cuando una fila matchea por código a una HU
+-- eliminada (ver sp_listar_hu_epica_todas); no sobreescribe el resto de
+-- los datos de la HU.
+DROP PROCEDURE IF EXISTS sp_reactivar_historia_usuario;
+DELIMITER $$
+CREATE PROCEDURE sp_reactivar_historia_usuario (
+  IN p_id INT
+)
+BEGIN
+  UPDATE historias_usuario SET activa = TRUE WHERE id = p_id;
 END$$
 DELIMITER ;
 

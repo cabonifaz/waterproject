@@ -8,6 +8,7 @@
 import ExcelJS from 'exceljs';
 import * as epicasService from './epicasService';
 import * as historiasUsuarioService from './historiasUsuarioService';
+import { HistoriaUsuario } from '@/types';
 
 const COLUMNAS = ['Épica / Funcionalidad', 'Código', 'Título', 'Descripción', 'Prioridad'] as const;
 
@@ -54,6 +55,8 @@ export interface ResultadoImportacion {
   epicasCreadas: number;
   epicasReusadas: number;
   huCreadas: number;
+  huReactivadas: number;
+  huOmitidas: number;
   errores: string[];
 }
 
@@ -62,15 +65,39 @@ export async function importarEpicasHU(moduloId: number, archivo: Buffer): Promi
   await workbook.xlsx.load(archivo as unknown as ExcelJS.Buffer);
   const hoja = workbook.worksheets[0];
   if (!hoja) {
-    return { epicasCreadas: 0, epicasReusadas: 0, huCreadas: 0, errores: ['El Excel no tiene ninguna hoja'] };
+    return { epicasCreadas: 0, epicasReusadas: 0, huCreadas: 0, huReactivadas: 0, huOmitidas: 0, errores: ['El Excel no tiene ninguna hoja'] };
   }
 
   const epicasExistentes = await epicasService.listarEpicasModulo(moduloId);
   const epicaIdPorNombre = new Map<string, number>(epicasExistentes.map((e) => [e.nombre.trim().toLowerCase(), e.id]));
   let siguienteOrdenEpica = epicasExistentes.length;
   const ordenHUPorEpica = new Map<number, number>();
+  const epicasReusadasContadas = new Set<number>();
 
-  const resultado: ResultadoImportacion = { epicasCreadas: 0, epicasReusadas: 0, huCreadas: 0, errores: [] };
+  // HU existentes (activas e inactivas) de cada épica ya tocada en este
+  // import, indexadas por código en minúsculas — para no duplicar una HU
+  // si el Excel trae de nuevo su código (y reactivarla si estaba eliminada).
+  const huPorCodigoPorEpica = new Map<number, Map<string, HistoriaUsuario>>();
+  const obtenerHUPorCodigo = async (epicaId: number): Promise<Map<string, HistoriaUsuario>> => {
+    let mapa = huPorCodigoPorEpica.get(epicaId);
+    if (!mapa) {
+      const historias = await historiasUsuarioService.listarHUEpicaTodas(epicaId);
+      mapa = new Map(
+        historias.filter((h) => h.codigo && h.codigo.trim()).map((h) => [h.codigo!.trim().toLowerCase(), h])
+      );
+      huPorCodigoPorEpica.set(epicaId, mapa);
+    }
+    return mapa;
+  };
+
+  const resultado: ResultadoImportacion = {
+    epicasCreadas: 0,
+    epicasReusadas: 0,
+    huCreadas: 0,
+    huReactivadas: 0,
+    huOmitidas: 0,
+    errores: [],
+  };
 
   const filas = hoja.getRows(2, Math.max(hoja.rowCount - 1, 0)) || [];
 
@@ -103,22 +130,39 @@ export async function importarEpicasHU(moduloId: number, archivo: Buffer): Promi
         epicaId = await epicasService.crearEpica({ modulo_id: moduloId, nombre: nombreEpica, orden: siguienteOrdenEpica });
         epicaIdPorNombre.set(clave, epicaId);
         resultado.epicasCreadas += 1;
-      } else if (!ordenHUPorEpica.has(epicaId)) {
+      } else if (!epicasReusadasContadas.has(epicaId)) {
+        epicasReusadasContadas.add(epicaId);
         resultado.epicasReusadas += 1;
       }
 
-      const orden = (ordenHUPorEpica.get(epicaId) ?? 0) + 1;
-      ordenHUPorEpica.set(epicaId, orden);
+      const huExistente = codigo ? (await obtenerHUPorCodigo(epicaId)).get(codigo.toLowerCase()) : undefined;
 
-      await historiasUsuarioService.crearHistoriaUsuario({
-        epica_id: epicaId,
-        codigo: codigo || undefined,
-        titulo,
-        descripcion: descripcion || undefined,
-        prioridad,
-        orden,
-      });
-      resultado.huCreadas += 1;
+      if (huExistente) {
+        if (huExistente.activa) {
+          // Ya existe una HU activa con este código en la épica: no se
+          // duplica ni se sobreescribe.
+          resultado.huOmitidas += 1;
+        } else {
+          // Estaba eliminada (soft-delete): re-subir el Excel la recupera
+          // en vez de crear una HU nueva con el mismo código.
+          await historiasUsuarioService.reactivarHistoriaUsuario(huExistente.id);
+          huExistente.activa = true; // si el Excel repite el código en otra fila, que la trate como activa
+          resultado.huReactivadas += 1;
+        }
+      } else {
+        const orden = (ordenHUPorEpica.get(epicaId) ?? 0) + 1;
+        ordenHUPorEpica.set(epicaId, orden);
+
+        await historiasUsuarioService.crearHistoriaUsuario({
+          epica_id: epicaId,
+          codigo: codigo || undefined,
+          titulo,
+          descripcion: descripcion || undefined,
+          prioridad,
+          orden,
+        });
+        resultado.huCreadas += 1;
+      }
     } catch (err) {
       resultado.errores.push(
         `Fila ${numeroFilaExcel} (${nombreEpica} — ${titulo}): ${err instanceof Error ? err.message : 'error desconocido'}`

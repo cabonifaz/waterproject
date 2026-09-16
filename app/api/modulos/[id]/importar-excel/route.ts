@@ -24,7 +24,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     return NextResponse.json({
       success: true,
       data: resultado,
-      message: `${resultado.epicasCreadas} épica(s) nueva(s), ${resultado.huCreadas} HU creada(s)`,
+      message: `${resultado.epicasCreadas} épica(s) nueva(s), ${resultado.huCreadas} HU creada(s), ${resultado.huReactivadas} reactivada(s), ${resultado.huOmitidas} omitida(s)`,
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
