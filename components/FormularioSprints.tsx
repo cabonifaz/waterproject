@@ -10,6 +10,7 @@ interface Props {
   piId: number;
   siguienteNumero: number;
   mostrarPriorizacion: boolean;
+  fechaInicioSugerida?: string; // yyyy-mm-dd, ej. el día después del último sprint
   onSuccess: () => void;
 }
 
@@ -17,10 +18,10 @@ const inputClass =
   'w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500';
 const labelClass = 'block text-sm font-medium text-gray-700 mb-1';
 
-const FormularioSprints = ({ piId, siguienteNumero, mostrarPriorizacion, onSuccess }: Props) => {
+const FormularioSprints = ({ piId, siguienteNumero, mostrarPriorizacion, fechaInicioSugerida, onSuccess }: Props) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [fechaInicio, setFechaInicio] = useState(new Date().toISOString().split('T')[0]);
+  const [fechaInicio, setFechaInicio] = useState(fechaInicioSugerida || new Date().toISOString().split('T')[0]);
   const [diasDuracion, setDiasDuracion] = useState('14');
   const [cantidad, setCantidad] = useState('4');
   const [diasPriorizacion, setDiasPriorizacion] = useState('6');

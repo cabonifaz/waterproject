@@ -11,6 +11,7 @@ import FormularioEtapa from '@/components/FormularioEtapa';
 import EtapaSeccion from '@/components/EtapaSeccion';
 import ModalEliminarProyecto from '@/components/ModalEliminarProyecto';
 import MiembrosSeccion from '@/components/MiembrosSeccion';
+import ActividadesCierreModal from '@/components/ActividadesCierreModal';
 import { EstructuraProyecto } from '@/types';
 import { calcularTotalesPlanificados } from '@/lib/planificacion';
 
@@ -25,6 +26,7 @@ export default function ProyectoEstructuraPage() {
   const [mostrarFormEtapa, setMostrarFormEtapa] = useState(false);
   const [mostrarEliminar, setMostrarEliminar] = useState(false);
   const [mostrarMiembros, setMostrarMiembros] = useState(false);
+  const [mostrarActividadesCierre, setMostrarActividadesCierre] = useState(false);
 
   const cargarEstructura = useCallback(async () => {
     try {
@@ -109,6 +111,13 @@ export default function ProyectoEstructuraPage() {
                     👥 Miembros
                   </button>
                   <button
+                    onClick={() => setMostrarActividadesCierre(true)}
+                    title="Actividades de cierre obligatorias por funcionalidad"
+                    className="px-6 py-3 bg-white border-2 border-amber-200 text-amber-800 rounded-lg hover:bg-amber-50 font-semibold transition-colors"
+                  >
+                    🏁 Act. de cierre
+                  </button>
+                  <button
                     onClick={() => setMostrarFormEtapa(true)}
                     className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold transition-colors"
                   >
@@ -150,6 +159,14 @@ export default function ProyectoEstructuraPage() {
                 onRefrescar={cargarEstructura}
               />
             </Modal>
+          )}
+
+          {mostrarActividadesCierre && (
+            <ActividadesCierreModal
+              proyectoId={proyectoId}
+              onClose={() => setMostrarActividadesCierre(false)}
+              onCambio={cargarEstructura}
+            />
           )}
 
           {mostrarFormEtapa && estructura && (

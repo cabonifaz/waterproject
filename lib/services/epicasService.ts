@@ -38,3 +38,8 @@ export async function eliminarEpica(id: number): Promise<void> {
 export async function reactivarEpica(id: number): Promise<void> {
   await executeProcedure('sp_reactivar_epica', [id]);
 }
+
+export async function renombrarEpica(id: number, nombre: string): Promise<Epica> {
+  const rows = await executeProcedure<Epica>('sp_renombrar_epica', [id, nombre]);
+  return rows[0];
+}

@@ -82,8 +82,6 @@ export async function importarEpicasHU(moduloId: number, archivo: Buffer): Promi
   // reactivar en vez de intentar crear una duplicada.
   const epicasExistentes = await epicasService.listarEpicasModuloTodas(moduloId);
   const epicaPorNombre = new Map<string, Epica>(epicasExistentes.map((e) => [e.nombre.trim().toLowerCase(), e]));
-  let siguienteOrdenEpica = epicasExistentes.length;
-  const ordenHUPorEpica = new Map<number, number>();
   const epicasReusadasContadas = new Set<number>();
 
   // HU existentes (activas e inactivas) de cada épica ya tocada en este
@@ -140,9 +138,9 @@ export async function importarEpicasHU(moduloId: number, archivo: Buffer): Promi
       let epicaExistente = epicaPorNombre.get(clave);
       let epicaId: number;
       if (!epicaExistente) {
-        siguienteOrdenEpica += 1;
-        epicaId = await epicasService.crearEpica({ modulo_id: moduloId, nombre: nombreEpica, orden: siguienteOrdenEpica });
-        epicaPorNombre.set(clave, { id: epicaId, modulo_id: moduloId, nombre: nombreEpica, activa: true, orden: siguienteOrdenEpica } as Epica);
+        // Sin orden explícito: el SP la agrega al final del módulo.
+        epicaId = await epicasService.crearEpica({ modulo_id: moduloId, nombre: nombreEpica });
+        epicaPorNombre.set(clave, { id: epicaId, modulo_id: moduloId, nombre: nombreEpica, activa: true } as Epica);
         resultado.epicasCreadas += 1;
       } else {
         epicaId = epicaExistente.id;
@@ -174,16 +172,13 @@ export async function importarEpicasHU(moduloId: number, archivo: Buffer): Promi
           resultado.huReactivadas += 1;
         }
       } else {
-        const orden = (ordenHUPorEpica.get(epicaId) ?? 0) + 1;
-        ordenHUPorEpica.set(epicaId, orden);
-
+        // Sin orden explícito: el SP la agrega al final de la épica.
         await historiasUsuarioService.crearHistoriaUsuario({
           epica_id: epicaId,
           codigo: codigo || undefined,
           titulo,
           descripcion: descripcion || undefined,
           prioridad,
-          orden,
         });
         resultado.huCreadas += 1;
       }

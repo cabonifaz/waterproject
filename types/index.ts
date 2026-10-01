@@ -38,6 +38,7 @@ export interface Proyecto {
   estado: 'activo' | 'pausado' | 'completado' | 'cancelado';
   estado_planificacion: 'abierto' | 'cerrado';
   baseline_capturado: boolean;
+  auto_actividades_cierre?: boolean;
   created_at: Date;
   updated_at: Date;
   // Nombres del PI / célula: presentes cuando vienen de sp_obtener_proyecto
@@ -117,9 +118,22 @@ export interface HistoriaUsuario {
   cerrada: boolean;
   fecha_cierre?: Date;
   activa: boolean;
+  // Actividad de cierre obligatoria de la funcionalidad (auto-creada a
+  // partir de la lista del proyecto, ver ActividadCierre).
+  es_actividad_cierre: boolean;
+  actividad_cierre_id: number | null;
   orden: number;
   created_at: Date;
   updated_at: Date;
+}
+
+// Nombre de una actividad de cierre que se crea en cada funcionalidad
+// (épica) del proyecto, si proyectos.auto_actividades_cierre está activo.
+export interface ActividadCierre {
+  id: number;
+  proyecto_id: number;
+  nombre: string;
+  orden: number;
 }
 
 export interface TareaMatriz {

@@ -32,6 +32,7 @@
 //       > 8%   -> rojo
 
 import { EstructuraProyecto, EpicaConHU, TareaMatrizConDias, FilaAvanceCedula, Semaforo } from '@/types';
+import { fechaCierreEfectiva } from './hitos';
 
 export type { Semaforo };
 
@@ -49,8 +50,10 @@ function diasBaseline(dias: { tipo_marca: string }[]): number {
   return dias.filter((d) => d.tipo_marca !== 'cierre').length;
 }
 
-function tieneCierreReal(diasReales: { tipo_marca: string }[]): boolean {
-  return diasReales.some((d) => d.tipo_marca === 'cierre');
+// Cerrada = su último día real marcado es un hito (las tareas matrices
+// pueden tener varios hitos; ver lib/hitos.ts).
+function tieneCierreReal(diasReales: { fecha: string; tipo_marca: string }[]): boolean {
+  return fechaCierreEfectiva(diasReales) != null;
 }
 
 function diasEpicaBaseline(epica: EpicaConHU, campo: 'diasBaseline' | 'diasPlanificados' | 'diasReales'): number {

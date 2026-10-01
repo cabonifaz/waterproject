@@ -7,23 +7,29 @@ import Modal from './Modal';
 import FormularioNombreSimple from './FormularioNombreSimple';
 import FormularioImportarExcel from './FormularioImportarExcel';
 import EpicaSeccion from './EpicaSeccion';
+import BotonesOrden from './BotonesOrden';
 import { ModuloConEpicas, Miembro } from '@/types';
 
 interface Props {
   modulo: ModuloConEpicas;
   miembrosProyecto: Miembro[];
   totalGeneral: number;
+  idsHermanos: number[]; // módulos de la etapa, en orden — para ▲▼
+  indice: number;
   onRefrescar: () => void;
 }
 
-const ModuloSeccion = ({ modulo, miembrosProyecto, totalGeneral, onRefrescar }: Props) => {
+const ModuloSeccion = ({ modulo, miembrosProyecto, totalGeneral, idsHermanos, indice, onRefrescar }: Props) => {
   const [mostrarForm, setMostrarForm] = useState(false);
   const [mostrarImportar, setMostrarImportar] = useState(false);
+  const [editando, setEditando] = useState(false);
   const [expandido, setExpandido] = useState(true);
+  const idsEpicas = modulo.epicas.map((e) => e.id);
 
   return (
     <div className="ml-4 mt-3 rounded-lg overflow-hidden border border-indigo-200">
-      <div className="flex justify-between items-center px-3 py-2 bg-indigo-200">
+      <div className="flex justify-between items-center px-3 py-2 bg-indigo-200 gap-2">
+        <BotonesOrden tipo="modulo" ids={idsHermanos} indice={indice} onMovido={onRefrescar} />
         <button onClick={() => setExpandido((v) => !v)} className="flex-1 text-left">
           <h3 className="font-bold text-indigo-900 text-sm">
             {expandido ? '▼' : '▶'} 📦 {modulo.nombre}
@@ -42,6 +48,13 @@ const ModuloSeccion = ({ modulo, miembrosProyecto, totalGeneral, onRefrescar }: 
           >
             ➕ Épica / Funcionalidad
           </button>
+          <button
+            onClick={() => setEditando(true)}
+            title="Editar módulo"
+            className="text-xs text-indigo-800 hover:text-indigo-950"
+          >
+            ✏️
+          </button>
         </div>
       </div>
 
@@ -51,12 +64,14 @@ const ModuloSeccion = ({ modulo, miembrosProyecto, totalGeneral, onRefrescar }: 
             <p className="ml-4 text-xs text-gray-400">Sin épicas / funcionalidades todavía</p>
           )}
 
-          {modulo.epicas.map((epica) => (
+          {modulo.epicas.map((epica, i) => (
             <EpicaSeccion
               key={epica.id}
               epica={epica}
               miembrosProyecto={miembrosProyecto}
               totalGeneral={totalGeneral}
+              idsHermanas={idsEpicas}
+              indice={i}
               onRefrescar={onRefrescar}
             />
           ))}
@@ -72,6 +87,20 @@ const ModuloSeccion = ({ modulo, miembrosProyecto, totalGeneral, onRefrescar }: 
             labelNombre="Nombre de la épica / funcionalidad"
             onSuccess={() => {
               setMostrarForm(false);
+              onRefrescar();
+            }}
+          />
+        </Modal>
+      )}
+
+      {editando && (
+        <Modal titulo="Editar Módulo" onClose={() => setEditando(false)}>
+          <FormularioNombreSimple
+            endpoint={`/api/modulos/${modulo.id}`}
+            labelNombre="Nombre del módulo"
+            valorInicial={modulo.nombre}
+            onSuccess={() => {
+              setEditando(false);
               onRefrescar();
             }}
           />

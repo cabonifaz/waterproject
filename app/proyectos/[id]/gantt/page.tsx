@@ -1,19 +1,26 @@
 // app/proyectos/[id]/gantt/page.tsx
 // Vista Gantt planificada: columnas = días hábiles agrupados por sprint,
 // filas = tareas matrices y HU. Click en una celda marca/despeja el día
-// según el modo activo (desarrollo|trabajo / certificación / cierre).
+// según el modo activo (desarrollo|trabajo / certificación / hito).
+// El "H" del planificado es la FECHA COMPROMETIDA — no significa que la
+// actividad esté cerrada (eso solo lo dice el hito del Gantt Real). Las
+// HU tienen un único hito; las tareas matrices pueden tener varios.
+// Misma distribución de celdas (anchos, altos y bordes) que el Gantt
+// Real: ver app/proyectos/[id]/gantt-real/page.tsx.
 
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, CSSProperties } from 'react';
 import { useParams } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import SelectorMiembros from '@/components/SelectorMiembros';
 import Modal from '@/components/Modal';
 import FormularioImportarGanttExcel from '@/components/FormularioImportarGanttExcel';
 import FormularioImportarPlanExterno from '@/components/FormularioImportarPlanExterno';
+import EditarSprintsModal from '@/components/EditarSprintsModal';
 import { EstructuraProyecto, Sprint, Feriado, Miembro } from '@/types';
 import { calcularTotalesPlanificados, calcularPorcentaje, diasPlanificadosEpica } from '@/lib/planificacion';
+import { formatFechaCorta } from '@/lib/hitos';
 import { exportarGanttComoExcel, ItemExcel } from '@/lib/exportarGanttExcel';
 
 type Modo = 'desarrollo' | 'certificacion' | 'cierre';
@@ -24,7 +31,7 @@ interface FilaGantt {
   etiqueta: string;
   contexto: string;
   marcasPermitidas: string[];
-  fechaCierre?: string;
+  esActividadCierre?: boolean; // HU de cierre obligatoria de la funcionalidad
   miembros: Miembro[];
   diasPropios?: number; // solo tareas matrices: días de "trabajo" marcados, para el "(N días · %)" del título
 }
@@ -35,17 +42,21 @@ type ItemRender =
   | { kind: 'divisor'; nivel: NivelDivisor; label: string; key: string; diasGrupo?: number }
   | { kind: 'fila'; fila: FilaGantt };
 
-const ANCHO_ACTIVIDAD = 220;
+const ANCHO_ACTIVIDAD = 260;
 const ANCHO_H = 36;
 const ANCHO_MIEMBROS = 96;
+const ANCHO_PANEL_FIJO = ANCHO_H + ANCHO_ACTIVIDAD + ANCHO_MIEMBROS;
+const ALTO_FILA_MES = 26;
+const ALTO_FILA_SPRINT = 26;
+const ALTO_FILA_DIA = 32;
+const ALTO_ENCABEZADO = ALTO_FILA_MES + ALTO_FILA_SPRINT + ALTO_FILA_DIA;
+const ALTO_FILA_DATO = 56;
+const ALTO_FILA_DIVISOR = 28;
 
-function formatFechaCorta(fecha: string): string {
-  return new Date(fecha.slice(0, 10) + 'T00:00:00').toLocaleDateString('es', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-  });
-}
+// Fuerza que cada celda "sticky" tenga su propia capa de composición —
+// ayuda a que el navegador la repinte de forma más estable durante el
+// scroll.
+const CAPA_FIJA: CSSProperties = { transform: 'translateZ(0)', backfaceVisibility: 'hidden' };
 
 interface Columna {
   fecha: string; // yyyy-mm-dd
@@ -55,6 +66,7 @@ interface Columna {
   diaSemana: string;
   esFeriado: boolean;
   esInicioGrupo: boolean;
+  esHoy: boolean;
 }
 
 const DIAS_SEMANA = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
@@ -81,6 +93,7 @@ function etiquetaGrupo(sprint: Sprint): string {
 // muestran como columna normal pero marcada, para que se vea resaltada en
 // todas las filas del Gantt (ver `esFeriado` al renderizar).
 function calcularColumnas(sprints: Sprint[], feriados: Set<string>): Columna[] {
+  const hoyISO = formatISO(soloFecha(new Date()));
   const columnas: Columna[] = [];
   for (const sprint of sprints) {
     const inicio = soloFecha(sprint.fecha_inicio);
@@ -99,6 +112,7 @@ function calcularColumnas(sprints: Sprint[], feriados: Set<string>): Columna[] {
           diaSemana: DIAS_SEMANA[dow],
           esFeriado: feriados.has(fecha),
           esInicioGrupo: esPrimerDiaDelSprint,
+          esHoy: fecha === hoyISO,
         });
         esPrimerDiaDelSprint = false;
       }
@@ -108,51 +122,18 @@ function calcularColumnas(sprints: Sprint[], feriados: Set<string>): Columna[] {
   return columnas;
 }
 
-function construirFilas(estructura: EstructuraProyecto): FilaGantt[] {
-  const filas: FilaGantt[] = [];
-  for (const etapa of estructura.etapas) {
-    for (const t of etapa.tareasMatrices) {
-      filas.push({
-        tipo: 'tareaMatriz',
-        id: t.id,
-        etiqueta: t.titulo,
-        contexto: etapa.nombre,
-        marcasPermitidas: ['trabajo', 'cierre'],
-        miembros: [],
-      });
-    }
-    for (const modulo of etapa.modulos) {
-      for (const epica of modulo.epicas) {
-        for (const h of epica.historias) {
-          filas.push({
-            tipo: 'hu',
-            id: h.id,
-            etiqueta: (h.codigo ? `${h.codigo} — ` : '') + h.titulo,
-            contexto: `${etapa.nombre} / ${modulo.nombre} / ${epica.nombre}`,
-            marcasPermitidas: ['desarrollo', 'certificacion', 'cierre'],
-            miembros: [],
-          });
-        }
-      }
-    }
-  }
-  return filas;
-}
-
-// Igual que construirFilas, pero intercala filas-divisor (etapa/módulo/épica)
-// para que se vea la jerarquía en el Gantt: una barra completa que corta
-// todos los días de todos los sprints, con el nombre en la columna de
-// Actividad. Cada épica lleva su total de días planificados (desarrollo +
-// certificación de sus HU) y cada tarea matriz el conteo de días de
-// "trabajo" — ambos usados después para el "(N días · %)" junto al nombre.
+// Intercala filas-divisor (etapa/módulo/épica) para que se vea la
+// jerarquía en el Gantt: una barra completa que corta todos los días de
+// todos los sprints, con el nombre en la columna de Actividad. Cada épica
+// lleva su total de días planificados (desarrollo + certificación de sus
+// HU) y cada tarea matriz el conteo de días de "trabajo" — ambos usados
+// después para el "(N días · %)" junto al nombre.
 function construirItemsRender(estructura: EstructuraProyecto): ItemRender[] {
   const items: ItemRender[] = [];
   for (const etapa of estructura.etapas) {
     items.push({ kind: 'divisor', nivel: 'etapa', label: etapa.nombre, key: `etapa-${etapa.id}` });
 
     for (const t of etapa.tareasMatrices) {
-      const diasTrabajo = t.diasPlanificados.filter((d) => d.tipo_marca === 'trabajo').length;
-      const marcaCierre = t.diasPlanificados.find((d) => d.tipo_marca === 'cierre');
       items.push({
         kind: 'fila',
         fila: {
@@ -161,9 +142,8 @@ function construirItemsRender(estructura: EstructuraProyecto): ItemRender[] {
           etiqueta: t.titulo,
           contexto: etapa.nombre,
           marcasPermitidas: ['trabajo', 'cierre'],
-          fechaCierre: marcaCierre?.fecha,
           miembros: t.miembros,
-          diasPropios: diasTrabajo,
+          diasPropios: t.diasPlanificados.filter((d) => d.tipo_marca === 'trabajo').length,
         },
       });
     }
@@ -181,7 +161,6 @@ function construirItemsRender(estructura: EstructuraProyecto): ItemRender[] {
         });
 
         for (const h of epica.historias) {
-          const marcaCierre = h.diasPlanificados.find((d) => d.tipo_marca === 'cierre');
           items.push({
             kind: 'fila',
             fila: {
@@ -190,7 +169,7 @@ function construirItemsRender(estructura: EstructuraProyecto): ItemRender[] {
               etiqueta: (h.codigo ? `${h.codigo} — ` : '') + h.titulo,
               contexto: `${etapa.nombre} / ${modulo.nombre} / ${epica.nombre}`,
               marcasPermitidas: ['desarrollo', 'certificacion', 'cierre'],
-              fechaCierre: marcaCierre?.fecha,
+              esActividadCierre: !!h.es_actividad_cierre,
               miembros: h.miembros,
             },
           });
@@ -227,7 +206,7 @@ const coloresMarca: Record<string, string> = {
 const MODOS: { valor: Modo; label: string; color: string }[] = [
   { valor: 'desarrollo', label: '🟢 Desarrollo / Trabajo', color: 'bg-green-500' },
   { valor: 'certificacion', label: '🟠 Certificación', color: 'bg-orange-400' },
-  { valor: 'cierre', label: '🔵 Cierre', color: 'bg-blue-600' },
+  { valor: 'cierre', label: '🔵 Hito (fecha comprometida)', color: 'bg-blue-600' },
 ];
 
 export default function GanttPage() {
@@ -246,6 +225,20 @@ export default function GanttPage() {
   const [exportando, setExportando] = useState(false);
   const [mostrarImportar, setMostrarImportar] = useState(false);
   const [mostrarImportarPlanExterno, setMostrarImportarPlanExterno] = useState(false);
+  const [mostrarSprints, setMostrarSprints] = useState(false);
+  const [modalTituloCompleto, setModalTituloCompleto] = useState<string | null>(null);
+  const [controlesAbiertos, setControlesAbiertos] = useState(true);
+
+  // Panel fijo (H/Actividad/Miembros) como overlay absoluto sincronizado a
+  // mano con el scroll vertical — mismo patrón que el Gantt Real (sticky
+  // se desalinea/parpadea con muchas filas x columnas).
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const panelFijoBodyRef = useRef<HTMLDivElement>(null);
+  const handleScrollGantt = useCallback(() => {
+    if (scrollRef.current && panelFijoBodyRef.current) {
+      panelFijoBodyRef.current.style.transform = `translateY(-${scrollRef.current.scrollTop}px)`;
+    }
+  }, []);
 
   const cargar = useCallback(async () => {
     try {
@@ -300,8 +293,20 @@ export default function GanttPage() {
 
   const feriadosSet = useMemo(() => new Set(feriados.map((f) => String(f.fecha).slice(0, 10))), [feriados]);
   const columnas = useMemo(() => calcularColumnas(sprints, feriadosSet), [sprints, feriadosSet]);
-  const filas = useMemo(() => (estructura ? construirFilas(estructura) : []), [estructura]);
   const itemsRender = useMemo(() => (estructura ? construirItemsRender(estructura) : []), [estructura]);
+  const cantidadFilas = useMemo(() => itemsRender.filter((i) => i.kind === 'fila').length, [itemsRender]);
+  // Hitos por fila calculados en vivo desde `marcas` (no desde
+  // `estructura`), para que el H del panel fijo se actualice apenas se
+  // marca una celda, sin recargar.
+  const hitosPorFila = useMemo(() => {
+    const mapa = new Map<string, string[]>();
+    for (const [key, valor] of marcas) {
+      if (valor !== 'cierre') continue;
+      const filaKey = key.slice(0, key.length - 11); // quita "-yyyy-mm-dd"
+      mapa.set(filaKey, [...(mapa.get(filaKey) ?? []), key.slice(key.length - 10)].sort());
+    }
+    return mapa;
+  }, [marcas]);
   const totales = useMemo(
     () => (estructura ? calcularTotalesPlanificados(estructura) : { desarrollo: 0, certificacion: 0 }),
     [estructura]
@@ -348,7 +353,9 @@ export default function GanttPage() {
 
     setMarcas((prev) => {
       const next = new Map(prev);
-      if (tipoEfectivo === 'cierre') {
+      // HU: hito único (marcar uno nuevo mueve el anterior). Las tareas
+      // matrices admiten varios hitos.
+      if (tipoEfectivo === 'cierre' && fila.tipo === 'hu') {
         for (const k of Array.from(next.keys())) {
           if (k.startsWith(`${fila.tipo}-${fila.id}-`) && next.get(k) === 'cierre') next.delete(k);
         }
@@ -378,13 +385,31 @@ export default function GanttPage() {
       })
       .catch((err) => {
         setError(err instanceof Error ? err.message : 'No se pudo guardar la marca');
-        // la petición falló: revertir la marca optimista para no mentirle a la UI
-        setMarcas((prev) => {
-          const next = new Map(prev);
-          if (next.get(key) === tipoEfectivo) next.delete(key);
-          return next;
-        });
+        // la petición falló: recargar lo guardado para no mentirle a la UI
+        cargarSilencioso();
       });
+  };
+
+  // Igual que `cargar` pero sin el skeleton de carga (no "parpadea" el Gantt).
+  const cargarSilencioso = async () => {
+    try {
+      const res = await fetch(`/api/proyectos/${proyectoId}/estructura`);
+      if (!res.ok) return;
+      const data = await res.json();
+      setEstructura(data.data);
+      const m = new Map<string, string>();
+      for (const etapa of data.data.etapas) {
+        for (const t of etapa.tareasMatrices)
+          for (const d of t.diasPlanificados) m.set(claveMarca('tareaMatriz', t.id, d.fecha.slice(0, 10)), d.tipo_marca);
+        for (const modulo of etapa.modulos)
+          for (const epica of modulo.epicas)
+            for (const h of epica.historias)
+              for (const d of h.diasPlanificados) m.set(claveMarca('hu', h.id, d.fecha.slice(0, 10)), d.tipo_marca);
+      }
+      setMarcas(m);
+    } catch {
+      // no bloquea el Gantt
+    }
   };
 
   const handleCerrarPlanificado = async () => {
@@ -432,7 +457,7 @@ export default function GanttPage() {
               id: item.fila.id,
               etiqueta: item.fila.etiqueta + (item.fila.diasPropios != null ? sufijo(item.fila.diasPropios) : ''),
               contexto: item.fila.contexto,
-              fechaCierre: item.fila.fechaCierre,
+              fechaCierre: (hitosPorFila.get(`${item.fila.tipo}-${item.fila.id}`) ?? []).slice(-1)[0],
               miembros: item.fila.miembros.map((m) => m.iniciales).join('/'),
             }
       );
@@ -472,59 +497,70 @@ export default function GanttPage() {
                 {estructura && <p className="text-gray-600 text-sm mt-1">{estructura.proyecto.nombre}</p>}
               </div>
             </div>
-            <div className="flex items-center gap-3">
-              <a
-                href={`/proyectos/${proyectoId}/gantt-real`}
-                className="px-4 py-2 rounded-lg text-sm font-semibold bg-white border-2 border-slate-300 text-slate-700 hover:bg-slate-50"
-              >
-                🎯 REAL
-              </a>
-              {estructura && (
-                <button
-                  onClick={planificadoAbierto ? handleCerrarPlanificado : handleReactivarPlanificado}
-                  disabled={cambiandoEstado}
-                  className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 ${
-                    planificadoAbierto
-                      ? 'bg-white border-2 border-slate-300 text-slate-700 hover:bg-slate-50'
-                      : 'bg-amber-500 text-white hover:bg-amber-600'
-                  }`}
-                >
-                  {cambiandoEstado
-                    ? '⏳ Procesando...'
-                    : planificadoAbierto
-                    ? '🔒 Cerrar Planificado'
-                    : '🔓 Reactivar (Control de Cambios)'}
-                </button>
-              )}
-              {estructura && columnas.length > 0 && (
-                <button
-                  onClick={handleExportarExcel}
-                  disabled={exportando}
-                  className="px-4 py-2 rounded-lg text-sm font-semibold bg-white border-2 border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-                >
-                  {exportando ? '⏳ Exportando...' : '📊 Exportar Excel'}
-                </button>
-              )}
-              {estructura && columnas.length > 0 && planificadoAbierto && (
-                <button
-                  onClick={() => setMostrarImportar(true)}
+            {controlesAbiertos && (
+              <div className="flex items-center gap-3 flex-wrap">
+                <a
+                  href={`/proyectos/${proyectoId}/gantt-real`}
                   className="px-4 py-2 rounded-lg text-sm font-semibold bg-white border-2 border-slate-300 text-slate-700 hover:bg-slate-50"
                 >
-                  📥 Importar Excel
-                </button>
-              )}
-              {estructura && columnas.length > 0 && planificadoAbierto && (
-                <button
-                  onClick={() => setMostrarImportarPlanExterno(true)}
-                  className="px-4 py-2 rounded-lg text-sm font-semibold bg-white border-2 border-slate-300 text-slate-700 hover:bg-slate-50"
-                >
-                  📋 Importar Plan de Trabajo
-                </button>
-              )}
-              <a href={`/proyectos/${proyectoId}`} className="text-sm text-blue-600 hover:text-blue-800 font-semibold">
-                ← Volver a la estructura
-              </a>
-            </div>
+                  🎯 REAL
+                </a>
+                {estructura?.proyecto.pi_id && (
+                  <button
+                    onClick={() => setMostrarSprints(true)}
+                    title="Editar las fechas de los sprints o ampliar el planificado"
+                    className="px-4 py-2 rounded-lg text-sm font-semibold bg-white border-2 border-slate-300 text-slate-700 hover:bg-slate-50"
+                  >
+                    🗓️ Sprints
+                  </button>
+                )}
+                {estructura && (
+                  <button
+                    onClick={planificadoAbierto ? handleCerrarPlanificado : handleReactivarPlanificado}
+                    disabled={cambiandoEstado}
+                    className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 ${
+                      planificadoAbierto
+                        ? 'bg-white border-2 border-slate-300 text-slate-700 hover:bg-slate-50'
+                        : 'bg-amber-500 text-white hover:bg-amber-600'
+                    }`}
+                  >
+                    {cambiandoEstado
+                      ? '⏳ Procesando...'
+                      : planificadoAbierto
+                      ? '🔒 Cerrar Planificado'
+                      : '🔓 Reactivar (Control de Cambios)'}
+                  </button>
+                )}
+                {estructura && columnas.length > 0 && (
+                  <button
+                    onClick={handleExportarExcel}
+                    disabled={exportando}
+                    className="px-4 py-2 rounded-lg text-sm font-semibold bg-white border-2 border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    {exportando ? '⏳ Exportando...' : '📊 Exportar Excel'}
+                  </button>
+                )}
+                {estructura && columnas.length > 0 && planificadoAbierto && (
+                  <button
+                    onClick={() => setMostrarImportar(true)}
+                    className="px-4 py-2 rounded-lg text-sm font-semibold bg-white border-2 border-slate-300 text-slate-700 hover:bg-slate-50"
+                  >
+                    📥 Importar Excel
+                  </button>
+                )}
+                {estructura && columnas.length > 0 && planificadoAbierto && (
+                  <button
+                    onClick={() => setMostrarImportarPlanExterno(true)}
+                    className="px-4 py-2 rounded-lg text-sm font-semibold bg-white border-2 border-slate-300 text-slate-700 hover:bg-slate-50"
+                  >
+                    📋 Importar Plan de Trabajo
+                  </button>
+                )}
+                <a href={`/proyectos/${proyectoId}`} className="text-sm text-blue-600 hover:text-blue-800 font-semibold">
+                  ← Volver a la estructura
+                </a>
+              </div>
+            )}
           </div>
 
           {!planificadoAbierto && (
@@ -540,7 +576,7 @@ export default function GanttPage() {
             </div>
           )}
 
-          {loading && <div className="animate-pulse h-32 bg-gray-200 rounded mb-4" />}
+          {loading && !estructura && <div className="animate-pulse h-32 bg-gray-200 rounded mb-4" />}
 
           {!loading && estructura && columnas.length === 0 && (
             <div className="bg-white rounded-lg shadow p-8 text-center text-gray-500 mb-4">
@@ -556,25 +592,27 @@ export default function GanttPage() {
           )}
         </div>
 
-        {!loading && estructura && columnas.length > 0 && (
+        {estructura && columnas.length > 0 && (
           <div className="flex-1 min-h-0 flex flex-col px-6 pb-6">
-            <div className="flex items-center gap-6 mb-3 bg-white rounded-lg shadow px-4 py-2 text-sm flex-shrink-0">
-              <span className="font-semibold text-gray-700">📊 Días planificados:</span>
-              <span className="flex items-center gap-1.5 text-gray-600">
-                <span className="w-3 h-3 rounded bg-green-500 inline-block" /> Desarrollo:{' '}
-                <strong className="text-gray-900">{totales.desarrollo}</strong>
-              </span>
-              <span className="flex items-center gap-1.5 text-gray-600">
-                <span className="w-3 h-3 rounded bg-orange-400 inline-block" /> Certificación:{' '}
-                <strong className="text-gray-900">{totales.certificacion}</strong>
-              </span>
-              <span className="text-gray-600">
-                Total: <strong className="text-gray-900">{totalGeneral}</strong> día(s)
-              </span>
-            </div>
+            {controlesAbiertos && (
+              <div className="flex items-center gap-6 mb-3 bg-white rounded-lg shadow px-4 py-2 text-sm flex-shrink-0 flex-wrap">
+                <span className="font-semibold text-gray-700">📊 Días planificados:</span>
+                <span className="flex items-center gap-1.5 text-gray-600">
+                  <span className="w-3 h-3 rounded bg-green-500 inline-block" /> Desarrollo:{' '}
+                  <strong className="text-gray-900">{totales.desarrollo}</strong>
+                </span>
+                <span className="flex items-center gap-1.5 text-gray-600">
+                  <span className="w-3 h-3 rounded bg-orange-400 inline-block" /> Certificación:{' '}
+                  <strong className="text-gray-900">{totales.certificacion}</strong>
+                </span>
+                <span className="text-gray-600">
+                  Total: <strong className="text-gray-900">{totalGeneral}</strong> día(s)
+                </span>
+              </div>
+            )}
 
-            <div className="flex justify-between items-center gap-4 mb-4 bg-white rounded-lg shadow p-3 flex-shrink-0">
-              <div className="flex gap-2 items-center">
+            <div className="flex justify-between items-center gap-4 mb-4 bg-white rounded-lg shadow p-3 flex-shrink-0 flex-wrap">
+              <div className="flex gap-2 items-center flex-wrap">
                 <span className="text-sm text-gray-500 mr-1">Marcando:</span>
                 {MODOS.map((m) => (
                   <button
@@ -588,153 +626,273 @@ export default function GanttPage() {
                   </button>
                 ))}
               </div>
-              <div className="flex items-center gap-4 text-xs text-gray-500">
-                <span className="flex items-center gap-1">
-                  <span className="w-3 h-3 rounded bg-orange-200 inline-block" /> Feriado
-                </span>
-                <span className="flex items-center gap-1">
-                  <span className="w-1 h-3 rounded bg-slate-400 inline-block" /> Inicio de sprint
-                </span>
-                <span>{columnas.length} día(s) · {filas.length} actividad(es)</span>
+              <div className="flex items-center gap-3">
+                {controlesAbiertos && (
+                  <div className="flex items-center gap-4 text-xs text-gray-500 flex-wrap">
+                    <span
+                      className="flex items-center gap-1"
+                      title="En el planificado, H = fecha comprometida. El cierre real se marca en el Gantt Real."
+                    >
+                      <span className="w-3 h-3 rounded bg-blue-600 inline-block" /> H = fecha comprometida
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <span className="w-3 h-3 rounded bg-orange-200 inline-block" /> Feriado
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <span className="w-1 h-3 rounded bg-slate-400 inline-block" /> Inicio de sprint
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <span className="w-1.5 h-3 rounded bg-purple-600 inline-block" /> Hoy
+                    </span>
+                    <span>
+                      {columnas.length} día(s) · {cantidadFilas} actividad(es)
+                    </span>
+                  </div>
+                )}
+                <button
+                  onClick={() => setControlesAbiertos((v) => !v)}
+                  title={
+                    controlesAbiertos
+                      ? 'Ocultar botones, resumen y leyenda (más espacio para el Gantt)'
+                      : 'Mostrar botones, resumen y leyenda'
+                  }
+                  className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 bg-white hover:bg-gray-100 text-gray-500 flex-shrink-0"
+                >
+                  {controlesAbiertos ? '▴' : '▾'}
+                </button>
               </div>
             </div>
 
-            <div className="bg-white rounded-lg shadow overflow-auto flex-1 min-h-0">
-              <table className="table-fixed border-collapse text-xs">
-                <colgroup>
-                  <col style={{ width: ANCHO_ACTIVIDAD }} />
-                  <col style={{ width: ANCHO_H }} />
-                  <col style={{ width: ANCHO_MIEMBROS }} />
-                  {columnas.map((c) => (
-                    <col key={c.fecha} style={{ width: 44 }} />
+            <div className="bg-white rounded-lg shadow flex-1 min-h-0 relative overflow-hidden">
+              <div ref={scrollRef} onScroll={handleScrollGantt} className="overflow-auto h-full text-xs">
+                <div
+                  className="grid"
+                  style={{ gridTemplateColumns: `repeat(${columnas.length}, 44px)`, paddingLeft: ANCHO_PANEL_FIJO }}
+                >
+                  {(() => {
+                    let col = 1;
+                    return gruposMes.map((g, i) => {
+                      const inicio = col;
+                      col += g.cantidad;
+                      return (
+                        <div
+                          key={`${g.label}-${i}`}
+                          style={{ ...CAPA_FIJA, top: 0, height: ALTO_FILA_MES, gridColumn: `${inicio} / ${inicio + g.cantidad}`, gridRow: 1 }}
+                          className="sticky z-20 border-y border-r border-l-4 border-l-slate-900 px-1 py-1 flex items-center justify-center font-semibold bg-green-100 text-green-900"
+                        >
+                          {g.label}
+                        </div>
+                      );
+                    });
+                  })()}
+                  {(() => {
+                    let col = 1;
+                    return gruposSprint.map((g, i) => {
+                      const inicio = col;
+                      col += g.cantidad;
+                      return (
+                        <div
+                          key={`${g.label}-${i}`}
+                          style={{ ...CAPA_FIJA, top: ALTO_FILA_MES, height: ALTO_FILA_SPRINT, gridColumn: `${inicio} / ${inicio + g.cantidad}`, gridRow: 2 }}
+                          className="sticky z-20 border-y border-r border-l-2 border-l-slate-500 px-1 py-1 flex items-center justify-center font-semibold bg-green-100 text-green-900"
+                        >
+                          {g.label}
+                        </div>
+                      );
+                    });
+                  })()}
+                  {columnas.map((c, i) => (
+                    <div
+                      key={c.fecha}
+                      title={c.esHoy ? `${c.fecha} — HOY` : c.fecha}
+                      style={{ ...CAPA_FIJA, top: ALTO_FILA_MES + ALTO_FILA_SPRINT, height: ALTO_FILA_DIA, gridColumn: 1 + i, gridRow: 3 }}
+                      className={`sticky z-20 border flex items-center justify-center text-[11px] font-semibold tabular-nums ${bordeGrupoDia(i)} ${
+                        c.esHoy
+                          ? 'border-purple-700 bg-purple-600 text-white'
+                          : c.esFeriado
+                          ? 'border-slate-300 bg-orange-200 text-orange-800'
+                          : 'border-slate-300 bg-slate-50 text-gray-700'
+                      }`}
+                    >
+                      {c.esHoy ? 'HOY' : `${c.diaSemana}${String(c.diaMes).padStart(2, '0')}`}
+                    </div>
                   ))}
-                </colgroup>
-                <thead className="sticky top-0 z-20">
-                  <tr>
-                    <th
-                      rowSpan={3}
-                      style={{ width: ANCHO_ACTIVIDAD }}
-                      className="sticky top-0 left-0 z-30 bg-slate-100 border px-2 py-1 text-left align-bottom"
-                    >
-                      Actividad
-                    </th>
-                    <th
-                      rowSpan={3}
-                      style={{ left: ANCHO_ACTIVIDAD, width: ANCHO_H }}
-                      className="sticky top-0 z-30 bg-slate-100 border text-center align-bottom"
-                      title="Fecha planificada de cierre"
-                    >
-                      H
-                    </th>
-                    <th
-                      rowSpan={3}
-                      style={{ left: ANCHO_ACTIVIDAD + ANCHO_H, width: ANCHO_MIEMBROS }}
-                      className="sticky top-0 z-30 bg-slate-100 border text-center align-bottom shadow-[4px_0_6px_-3px_rgba(15,23,42,0.25)]"
-                    >
-                      Miembros
-                    </th>
-                    {gruposMes.map((g, i) => (
-                      <th
-                        key={`${g.label}-${i}`}
-                        colSpan={g.cantidad}
-                        className="border-y border-r border-l-4 border-l-slate-900 px-1 py-1 text-center font-semibold bg-green-100 text-green-900"
-                      >
-                        {g.label}
-                      </th>
-                    ))}
-                  </tr>
-                  <tr>
-                    {gruposSprint.map((g, i) => (
-                      <th
-                        key={`${g.label}-${i}`}
-                        colSpan={g.cantidad}
-                        className="border-y border-r border-l-2 border-l-slate-500 px-1 py-1 text-center font-semibold bg-green-100 text-green-900"
-                      >
-                        {g.label}
-                      </th>
-                    ))}
-                  </tr>
-                  <tr>
-                    {columnas.map((c, i) => (
-                      <th
-                        key={c.fecha}
-                        title={c.fecha}
-                        className={`border border-slate-300 w-11 h-8 text-[11px] font-semibold tabular-nums ${bordeGrupoDia(
-                          i
-                        )} ${c.esFeriado ? 'bg-orange-200 text-orange-800' : 'bg-slate-50 text-gray-700'}`}
-                      >
-                        {c.diaSemana}
-                        {String(c.diaMes).padStart(2, '0')}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
+
+                  {itemsRender.map((item, filaIdx) => {
+                    const filaGrid = 4 + filaIdx;
+                    if (item.kind === 'divisor') {
+                      const estilo = ESTILOS_DIVISOR[item.nivel];
+                      return (
+                        <div
+                          key={item.key}
+                          style={{ gridColumn: '1 / -1', gridRow: filaGrid, height: ALTO_FILA_DIVISOR }}
+                          className={`border ${estilo.celda}`}
+                        />
+                      );
+                    }
+
+                    const fila = item.fila;
+                    const tipoEfectivoModoActual = tipoEfectivoDe(fila, modo);
+                    const modoAplica = planificadoAbierto && fila.marcasPermitidas.includes(tipoEfectivoModoActual);
+
+                    return (
+                      <Fragment key={`${fila.tipo}-${fila.id}`}>
+                        {columnas.map((c, i) => {
+                          const marca = marcas.get(claveMarca(fila.tipo, fila.id, c.fecha));
+                          return (
+                            <div
+                              key={c.fecha}
+                              onClick={() => modoAplica && handleClickCelda(fila, c.fecha)}
+                              title={
+                                !planificadoAbierto
+                                  ? 'Planificado cerrado — reactivalo para editar'
+                                  : !modoAplica
+                                  ? 'El modo activo no aplica a esta actividad'
+                                  : marca === 'cierre'
+                                  ? 'Hito: fecha comprometida'
+                                  : undefined
+                              }
+                              style={{ gridColumn: 1 + i, gridRow: filaGrid, height: ALTO_FILA_DATO }}
+                              className={`border border-slate-300 ${bordeGrupoDia(i)} ${
+                                c.esHoy ? 'border-l-4 border-r-4 border-l-purple-600 border-r-purple-600' : ''
+                              } ${modoAplica ? 'cursor-pointer hover:opacity-70' : 'cursor-not-allowed'} ${
+                                !modoAplica
+                                  ? 'bg-gray-100'
+                                  : c.esFeriado
+                                  ? 'bg-orange-100'
+                                  : c.esHoy
+                                  ? 'bg-purple-50'
+                                  : 'bg-white'
+                              }`}
+                            >
+                              {marca && (
+                                <div className={`w-full h-full flex items-center justify-center ${coloresMarca[marca]}`}>
+                                  {marca === 'cierre' && <span className="text-white font-bold text-sm">H</span>}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </Fragment>
+                    );
+                  })}
+                  {cantidadFilas === 0 && (
+                    <div style={{ gridColumn: '1 / -1', gridRow: 4 }} className="text-center text-gray-400 py-8">
+                      Sin actividades todavía — agregá tareas matrices o historias de usuario.
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div
+                style={{ width: ANCHO_PANEL_FIJO }}
+                className="absolute top-0 left-0 h-full z-40 overflow-hidden bg-white border-r-2 border-slate-300 text-xs"
+              >
+                <div style={{ display: 'flex', height: ALTO_ENCABEZADO }}>
+                  <div
+                    style={{ width: ANCHO_H }}
+                    className="h-full bg-slate-100 border flex items-end justify-center pb-1 flex-shrink-0"
+                    title="Hito: fecha comprometida (planificada)"
+                  >
+                    H
+                  </div>
+                  <div
+                    style={{ width: ANCHO_ACTIVIDAD }}
+                    className="h-full bg-slate-100 border px-2 py-1 flex items-end flex-shrink-0"
+                  >
+                    Actividad
+                  </div>
+                  <div
+                    style={{ width: ANCHO_MIEMBROS }}
+                    className="h-full bg-slate-100 border flex items-end justify-center flex-shrink-0 shadow-[4px_0_6px_-3px_rgba(15,23,42,0.25)]"
+                  >
+                    Miembros
+                  </div>
+                </div>
+
+                <div style={{ position: 'absolute', top: ALTO_ENCABEZADO, left: 0, right: 0, bottom: 0, overflow: 'hidden' }}>
+                  <div ref={panelFijoBodyRef}>
                     {itemsRender.map((item) => {
                       if (item.kind === 'divisor') {
                         const estilo = ESTILOS_DIVISOR[item.nivel];
                         const porcentajeGrupo =
                           item.diasGrupo != null ? calcularPorcentaje(item.diasGrupo, totalGeneral) : null;
                         return (
-                          <tr key={item.key}>
-                            <td
-                              colSpan={3}
-                              className={`sticky left-0 z-10 border px-2 py-1.5 h-7 font-semibold text-[11px] whitespace-nowrap ${estilo.fila} ${estilo.padding}`}
-                            >
-                              {item.label}
-                              {item.diasGrupo != null && (
-                                <span className="font-normal opacity-80">
-                                  {' '}
-                                  ({item.diasGrupo} día{item.diasGrupo === 1 ? '' : 's'}
-                                  {porcentajeGrupo != null ? ` · ${porcentajeGrupo}%` : ''})
-                                </span>
-                              )}
-                            </td>
-                            <td colSpan={columnas.length} className={`border h-7 ${estilo.celda}`} />
-                          </tr>
+                          <div
+                            key={item.key}
+                            style={{ height: ALTO_FILA_DIVISOR }}
+                            className={`border px-2 flex items-center font-semibold text-[11px] whitespace-nowrap ${estilo.fila} ${estilo.padding}`}
+                          >
+                            {item.label}
+                            {item.diasGrupo != null && (
+                              <span className="font-normal opacity-80">
+                                {' '}
+                                ({item.diasGrupo} día{item.diasGrupo === 1 ? '' : 's'}
+                                {porcentajeGrupo != null ? ` · ${porcentajeGrupo}%` : ''})
+                              </span>
+                            )}
+                          </div>
                         );
                       }
 
                       const fila = item.fila;
-                      const tipoEfectivoModoActual = tipoEfectivoDe(fila, modo);
-                      const modoAplica = planificadoAbierto && fila.marcasPermitidas.includes(tipoEfectivoModoActual);
                       const porcentajePropio =
                         fila.diasPropios != null ? calcularPorcentaje(fila.diasPropios, totalGeneral) : null;
+                      const hitos = hitosPorFila.get(`${fila.tipo}-${fila.id}`) ?? [];
 
                       return (
-                        <tr key={`${fila.tipo}-${fila.id}`} className="hover:bg-blue-50">
-                          <td
-                            title={fila.etiqueta}
-                            style={{ width: ANCHO_ACTIVIDAD }}
-                            className="sticky left-0 z-10 bg-white border px-2 py-1 pl-8 overflow-hidden"
+                        <div
+                          key={`${fila.tipo}-${fila.id}`}
+                          style={{ display: 'flex', height: ALTO_FILA_DATO }}
+                          className="hover:bg-blue-50"
+                        >
+                          <div
+                            style={{ width: ANCHO_H }}
+                            className="h-full bg-white border flex items-center justify-center flex-shrink-0"
                           >
-                            <div className="font-medium text-gray-900 break-words leading-tight">
-                              {fila.etiqueta}
-                              {fila.diasPropios != null && (
-                                <span className="font-normal text-gray-400">
-                                  {' '}
-                                  ({fila.diasPropios} día{fila.diasPropios === 1 ? '' : 's'}
-                                  {porcentajePropio != null ? ` · ${porcentajePropio}%` : ''})
-                                </span>
-                              )}
-                            </div>
-                          </td>
-                          <td
-                            style={{ left: ANCHO_ACTIVIDAD, width: ANCHO_H }}
-                            className="sticky z-10 bg-white border text-center"
-                          >
-                            {fila.fechaCierre && (
+                            {hitos.length > 0 && (
                               <span
-                                title={`Fecha planificada: ${formatFechaCorta(fila.fechaCierre)}`}
-                                className="inline-flex items-center justify-center w-5 h-5 bg-blue-700 text-white text-[10px] font-bold rounded cursor-help"
+                                title={`Fecha${hitos.length > 1 ? 's' : ''} comprometida${hitos.length > 1 ? 's' : ''}: ${hitos
+                                  .map(formatFechaCorta)
+                                  .join(', ')}`}
+                                className="inline-flex items-center justify-center min-w-[20px] h-5 px-0.5 bg-blue-700 text-white text-[10px] font-bold rounded cursor-help"
                               >
-                                H
+                                H{hitos.length > 1 ? `×${hitos.length}` : ''}
                               </span>
                             )}
-                          </td>
-                          <td
-                            style={{ left: ANCHO_ACTIVIDAD + ANCHO_H, width: ANCHO_MIEMBROS }}
-                            className="sticky z-10 bg-white border text-center px-1 shadow-[4px_0_6px_-3px_rgba(15,23,42,0.25)]"
+                          </div>
+                          <div
+                            style={{ width: ANCHO_ACTIVIDAD }}
+                            className="h-full bg-white border px-2 py-1 pl-3 overflow-hidden flex-shrink-0"
+                          >
+                            <div className="font-medium text-gray-900 flex items-start gap-1.5 min-w-0">
+                              <span className="min-w-0 line-clamp-2 leading-tight break-words">
+                                {fila.esActividadCierre && (
+                                  <span title="Actividad de cierre de la funcionalidad" className="mr-1">
+                                    🏁
+                                  </span>
+                                )}
+                                {fila.etiqueta}
+                                {fila.diasPropios != null && (
+                                  <span className="font-normal text-gray-400">
+                                    {' '}
+                                    ({fila.diasPropios} día{fila.diasPropios === 1 ? '' : 's'}
+                                    {porcentajePropio != null ? ` · ${porcentajePropio}%` : ''})
+                                  </span>
+                                )}
+                              </span>
+                              <button
+                                onClick={() => setModalTituloCompleto(fila.etiqueta)}
+                                title="Ver título completo"
+                                className="flex-shrink-0 text-gray-400 hover:text-gray-700 leading-none px-0.5"
+                              >
+                                ⋯
+                              </button>
+                            </div>
+                          </div>
+                          <div
+                            style={{ width: ANCHO_MIEMBROS }}
+                            className="h-full bg-white border px-1 flex items-center justify-center flex-shrink-0 shadow-[4px_0_6px_-3px_rgba(15,23,42,0.25)]"
                           >
                             <SelectorMiembros
                               endpoint={
@@ -744,48 +902,17 @@ export default function GanttPage() {
                               }
                               miembrosProyecto={estructura.miembros}
                               miembrosAsignados={fila.miembros}
-                              onRefrescar={cargar}
+                              onRefrescar={cargarSilencioso}
                             />
-                          </td>
-                          {columnas.map((c, i) => {
-                            const marca = marcas.get(claveMarca(fila.tipo, fila.id, c.fecha));
-                            return (
-                              <td
-                                key={c.fecha}
-                                onClick={() => modoAplica && handleClickCelda(fila, c.fecha)}
-                                title={
-                                  !planificadoAbierto
-                                    ? 'Planificado cerrado — reactivalo para editar'
-                                    : !modoAplica
-                                    ? 'El modo activo no aplica a esta actividad'
-                                    : undefined
-                                }
-                                className={`border border-slate-300 w-11 h-8 text-center ${bordeGrupoDia(i)} ${
-                                  modoAplica ? 'cursor-pointer hover:opacity-70' : 'cursor-not-allowed'
-                                } ${!modoAplica ? 'bg-gray-100' : c.esFeriado ? 'bg-orange-100' : 'bg-white'}`}
-                              >
-                                {marca && (
-                                  <div className={`w-full h-full flex items-center justify-center ${coloresMarca[marca]}`}>
-                                    {marca === 'cierre' && <span className="text-white font-bold text-sm">H</span>}
-                                  </div>
-                                )}
-                              </td>
-                            );
-                          })}
-                        </tr>
+                          </div>
+                        </div>
                       );
                     })}
-                    {filas.length === 0 && (
-                      <tr>
-                        <td colSpan={columnas.length + 3} className="text-center text-gray-400 py-8">
-                          Sin actividades todavía — agregá tareas matrices o historias de usuario.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
+                  </div>
+                </div>
               </div>
             </div>
+          </div>
         )}
       </main>
 
@@ -808,6 +935,21 @@ export default function GanttPage() {
             endpoint={`/api/proyectos/${proyectoId}/gantt/importar-plan-externo`}
             onSuccess={cargar}
           />
+        </Modal>
+      )}
+
+      {mostrarSprints && estructura?.proyecto.pi_id && (
+        <EditarSprintsModal
+          piId={estructura.proyecto.pi_id}
+          sprints={sprints}
+          onClose={() => setMostrarSprints(false)}
+          onCambio={cargar}
+        />
+      )}
+
+      {modalTituloCompleto && (
+        <Modal titulo="Actividad" onClose={() => setModalTituloCompleto(null)} ancho="max-w-md">
+          <p className="text-sm text-gray-800 break-words">{modalTituloCompleto}</p>
         </Modal>
       )}
     </div>

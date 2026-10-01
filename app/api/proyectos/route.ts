@@ -3,6 +3,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import * as proyectosService from '@/lib/services/proyectosService';
 import * as plantillaService from '@/lib/services/plantillaService';
+import * as actividadesCierreService from '@/lib/services/actividadesCierreService';
 import * as cumplimientoService from '@/lib/services/cumplimientoService';
 import { porcentaje, calcularSemaforo, topePorcentaje } from '@/lib/avanceCedula';
 
@@ -53,10 +54,29 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Actividades de cierre por funcionalidad (opcionales): si se activan,
+    // la lista de nombres es obligatoria.
+    const actividadesCierre: string[] = Array.isArray(body.actividades_cierre)
+      ? body.actividades_cierre.map((n: unknown) => String(n ?? '').trim()).filter(Boolean)
+      : [];
+    if (body.auto_actividades_cierre && actividadesCierre.length === 0) {
+      return NextResponse.json(
+        { error: 'Indicá al menos una actividad de cierre por funcionalidad, o desactivá la opción.' },
+        { status: 400 }
+      );
+    }
+
     const id = await proyectosService.crearProyecto(body);
 
     if (body.usarPlantilla !== false) {
       await plantillaService.aplicarPlantillaEstandar(id);
+    }
+
+    if (body.auto_actividades_cierre) {
+      for (const nombre of actividadesCierre) {
+        await actividadesCierreService.crearActividadCierre(id, nombre);
+      }
+      await actividadesCierreService.configurarAutoActividadesCierre(id, true);
     }
 
     return NextResponse.json(

@@ -8,8 +8,10 @@ import FormularioNombreSimple from './FormularioNombreSimple';
 import FormularioTareaMatriz from './FormularioTareaMatriz';
 import ModuloSeccion from './ModuloSeccion';
 import SelectorMiembros from './SelectorMiembros';
-import { EtapaConContenido, Miembro } from '@/types';
+import BotonesOrden from './BotonesOrden';
+import { EtapaConContenido, Miembro, TareaMatriz } from '@/types';
 import { diasPlanificadosEtapa, calcularPorcentaje } from '@/lib/planificacion';
+import { fechasHito, fechaCierreEfectiva, formatFechaCorta } from '@/lib/hitos';
 
 interface Props {
   etapa: EtapaConContenido;
@@ -17,13 +19,6 @@ interface Props {
   totalGeneral: number;
   onRefrescar: () => void;
 }
-
-const formatFechaCorta = (fecha: string) =>
-  new Date(fecha.slice(0, 10) + 'T00:00:00').toLocaleDateString('es', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-  });
 
 const sufijoDiasPorcentaje = (dias: number, total: number) => {
   const porcentaje = calcularPorcentaje(dias, total);
@@ -35,6 +30,9 @@ const EtapaSeccion = ({ etapa, miembrosProyecto, totalGeneral, onRefrescar }: Pr
   const [expandido, setExpandido] = useState(true);
   const [mostrarFormTarea, setMostrarFormTarea] = useState(false);
   const [mostrarFormModulo, setMostrarFormModulo] = useState(false);
+  const [editandoTarea, setEditandoTarea] = useState<TareaMatriz | null>(null);
+  const idsTareas = etapa.tareasMatrices.map((t) => t.id);
+  const idsModulos = etapa.modulos.map((m) => m.id);
 
   return (
     <div className="bg-white rounded-lg shadow mb-4 overflow-hidden">
@@ -84,26 +82,40 @@ const EtapaSeccion = ({ etapa, miembrosProyecto, totalGeneral, onRefrescar }: Pr
               <table className="w-full text-xs">
                 <thead className="bg-slate-50 border-b">
                   <tr>
-                    <th className="px-2 py-2 text-center font-semibold w-8"></th>
+                    <th className="px-1 py-2 w-6"></th>
+                    <th className="px-2 py-2 text-center font-semibold w-10" title="Hitos: fechas comprometidas (planificadas)">
+                      H
+                    </th>
                     <th className="px-3 py-2 text-left font-semibold">Título</th>
                     <th className="px-3 py-2 text-center font-semibold">Días trabajo (Gantt)</th>
                     <th className="px-3 py-2 text-center font-semibold">Miembros</th>
-                    <th className="px-3 py-2 text-center font-semibold">Estado</th>
+                    <th className="px-3 py-2 text-center font-semibold" title="Según el hito del Gantt REAL">
+                      Estado
+                    </th>
+                    <th className="px-2 py-2 w-8"></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {etapa.tareasMatrices.map((t) => {
+                  {etapa.tareasMatrices.map((t, i) => {
                     const diasTrabajo = t.diasPlanificados.filter((d) => d.tipo_marca === 'trabajo').length;
-                    const marcaCierre = t.diasPlanificados.find((d) => d.tipo_marca === 'cierre');
+                    // H planificado = fecha(s) comprometida(s); el estado
+                    // "Cerrada" sale solo del hito del Gantt REAL.
+                    const hitos = fechasHito(t.diasPlanificados);
+                    const cierreReal = fechaCierreEfectiva(t.diasReales);
                     return (
                       <tr key={t.id} className="border-b last:border-b-0">
+                        <td className="px-1 py-2 text-center">
+                          <BotonesOrden tipo="tarea_matriz" ids={idsTareas} indice={i} onMovido={onRefrescar} />
+                        </td>
                         <td className="px-2 py-2 text-center">
-                          {marcaCierre && (
+                          {hitos.length > 0 && (
                             <span
-                              title={`Fecha planificada: ${formatFechaCorta(marcaCierre.fecha)}`}
-                              className="inline-flex items-center justify-center w-5 h-5 bg-blue-700 text-white text-[10px] font-bold rounded cursor-help"
+                              title={`Fecha${hitos.length > 1 ? 's' : ''} comprometida${hitos.length > 1 ? 's' : ''}: ${hitos
+                                .map(formatFechaCorta)
+                                .join(', ')}`}
+                              className="inline-flex items-center justify-center min-w-[20px] h-5 px-1 bg-blue-700 text-white text-[10px] font-bold rounded cursor-help"
                             >
-                              H
+                              H{hitos.length > 1 ? `×${hitos.length}` : ''}
                             </span>
                           )}
                         </td>
@@ -123,11 +135,25 @@ const EtapaSeccion = ({ etapa, miembrosProyecto, totalGeneral, onRefrescar }: Pr
                           />
                         </td>
                         <td className="px-3 py-2 text-center">
-                          {marcaCierre ? (
-                            <span className="text-green-700 font-semibold">✓ Cerrada</span>
+                          {cierreReal ? (
+                            <span
+                              title={`Hito real: ${formatFechaCorta(cierreReal)}`}
+                              className="text-green-700 font-semibold"
+                            >
+                              ✓ Cerrada
+                            </span>
                           ) : (
                             <span className="text-gray-400">Pendiente</span>
                           )}
+                        </td>
+                        <td className="px-2 py-2 text-center">
+                          <button
+                            onClick={() => setEditandoTarea(t)}
+                            title="Editar tarea matriz"
+                            className="text-gray-500 hover:text-gray-800"
+                          >
+                            ✏️
+                          </button>
                         </td>
                       </tr>
                     );
@@ -137,12 +163,14 @@ const EtapaSeccion = ({ etapa, miembrosProyecto, totalGeneral, onRefrescar }: Pr
             </div>
           )}
 
-          {etapa.modulos.map((modulo) => (
+          {etapa.modulos.map((modulo, i) => (
             <ModuloSeccion
               key={modulo.id}
               modulo={modulo}
               miembrosProyecto={miembrosProyecto}
               totalGeneral={totalGeneral}
+              idsHermanos={idsModulos}
+              indice={i}
               onRefrescar={onRefrescar}
             />
           ))}
@@ -163,6 +191,18 @@ const EtapaSeccion = ({ etapa, miembrosProyecto, totalGeneral, onRefrescar }: Pr
             etapaId={etapa.id}
             onSuccess={() => {
               setMostrarFormTarea(false);
+              onRefrescar();
+            }}
+          />
+        </Modal>
+      )}
+
+      {editandoTarea && (
+        <Modal titulo="Editar Tarea Matriz" onClose={() => setEditandoTarea(null)}>
+          <FormularioTareaMatriz
+            tarea={editandoTarea}
+            onSuccess={() => {
+              setEditandoTarea(null);
               onRefrescar();
             }}
           />

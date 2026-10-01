@@ -19,3 +19,8 @@ export async function crearModulo(datos: {
 export async function listarModulosEtapa(etapaId: number): Promise<Modulo[]> {
   return executeProcedure<Modulo>('sp_listar_modulos_etapa', [etapaId]);
 }
+
+export async function renombrarModulo(id: number, nombre: string): Promise<Modulo> {
+  const rows = await executeProcedure<Modulo>('sp_renombrar_modulo', [id, nombre]);
+  return rows[0];
+}

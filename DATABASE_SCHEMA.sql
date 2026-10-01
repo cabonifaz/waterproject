@@ -156,6 +156,27 @@ ALTER TABLE historias_usuario ADD COLUMN dias_restantes_estimados INT DEFAULT NU
 -- reactiva en vez de crear una HU duplicada (ver sp_listar_hu_epica_todas).
 ALTER TABLE historias_usuario ADD COLUMN activa BOOLEAN NOT NULL DEFAULT TRUE AFTER fecha_cierre;
 
+-- Actividades de cierre por funcionalidad (épica): opcionales, se fijan al
+-- crear el proyecto. Si proyectos.auto_actividades_cierre está activo,
+-- cada épica nueva nace con una HU por cada nombre de esta lista
+-- (marcada con es_actividad_cierre y enganchada vía actividad_cierre_id,
+-- para que renombrar/reordenar la lista se propague a las ya creadas).
+-- Se listan siempre al final de la épica, después de las HU comunes.
+ALTER TABLE proyectos ADD COLUMN auto_actividades_cierre BOOLEAN NOT NULL DEFAULT FALSE AFTER baseline_capturado;
+
+CREATE TABLE IF NOT EXISTS proyecto_actividades_cierre (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  proyecto_id INT NOT NULL,
+  nombre VARCHAR(500) NOT NULL,
+  orden INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (proyecto_id) REFERENCES proyectos(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+ALTER TABLE historias_usuario ADD COLUMN es_actividad_cierre BOOLEAN NOT NULL DEFAULT FALSE AFTER activa;
+ALTER TABLE historias_usuario ADD COLUMN actividad_cierre_id INT NULL AFTER es_actividad_cierre;
+ALTER TABLE historias_usuario ADD CONSTRAINT fk_hu_actividad_cierre FOREIGN KEY (actividad_cierre_id) REFERENCES proyecto_actividades_cierre(id) ON DELETE SET NULL;
+
 CREATE TABLE IF NOT EXISTS tareas_matrices (
   id INT AUTO_INCREMENT PRIMARY KEY,
   etapa_id INT NOT NULL,
@@ -689,8 +710,14 @@ BEGIN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Los módulos solo se pueden agregar a la etapa de Desarrollo';
   END IF;
 
+  -- Sin orden explícito (0/NULL) va al final, para no quedar arriba de
+  -- los que ya fueron reordenados a mano.
+  IF COALESCE(p_orden, 0) = 0 THEN
+    SELECT COALESCE(MAX(orden), 0) + 1 INTO p_orden FROM modulos WHERE etapa_id = p_etapa_id;
+  END IF;
+
   INSERT INTO modulos (etapa_id, nombre, orden)
-  VALUES (p_etapa_id, p_nombre, COALESCE(p_orden, 0));
+  VALUES (p_etapa_id, p_nombre, p_orden);
   SELECT LAST_INSERT_ID() AS id;
 END$$
 DELIMITER ;
@@ -717,9 +744,27 @@ CREATE PROCEDURE sp_crear_epica (
   IN p_orden INT
 )
 BEGIN
+  DECLARE v_id INT;
+
+  IF COALESCE(p_orden, 0) = 0 THEN
+    SELECT COALESCE(MAX(orden), 0) + 1 INTO p_orden FROM epicas WHERE modulo_id = p_modulo_id;
+  END IF;
+
   INSERT INTO epicas (modulo_id, nombre, orden)
-  VALUES (p_modulo_id, p_nombre, COALESCE(p_orden, 0));
-  SELECT LAST_INSERT_ID() AS id;
+  VALUES (p_modulo_id, p_nombre, p_orden);
+  SET v_id = LAST_INSERT_ID();
+
+  -- Actividades de cierre obligatorias por funcionalidad, si el proyecto
+  -- las tiene activadas (ver proyecto_actividades_cierre).
+  INSERT INTO historias_usuario (epica_id, titulo, es_actividad_cierre, actividad_cierre_id, orden)
+  SELECT v_id, ac.nombre, TRUE, ac.id, ac.orden
+  FROM modulos m
+  JOIN etapas et ON m.etapa_id = et.id
+  JOIN proyectos p ON et.proyecto_id = p.id
+  JOIN proyecto_actividades_cierre ac ON ac.proyecto_id = p.id
+  WHERE m.id = p_modulo_id AND p.auto_actividades_cierre = TRUE;
+
+  SELECT v_id AS id;
 END$$
 DELIMITER ;
 
@@ -791,13 +836,18 @@ CREATE PROCEDURE sp_crear_historia_usuario (
   IN p_orden INT
 )
 BEGIN
+  IF COALESCE(p_orden, 0) = 0 THEN
+    SELECT COALESCE(MAX(orden), 0) + 1 INTO p_orden
+    FROM historias_usuario WHERE epica_id = p_epica_id AND es_actividad_cierre = FALSE;
+  END IF;
+
   INSERT INTO historias_usuario (
     epica_id, codigo, titulo, descripcion, responsable, prioridad,
     dias_desarrollo, dias_certificacion, orden
   ) VALUES (
     p_epica_id, p_codigo, p_titulo, p_descripcion, p_responsable,
     COALESCE(p_prioridad, 'media'), COALESCE(p_dias_desarrollo, 0),
-    COALESCE(p_dias_certificacion, 0), COALESCE(p_orden, 0)
+    COALESCE(p_dias_certificacion, 0), p_orden
   );
   SELECT LAST_INSERT_ID() AS id;
 END$$
@@ -809,7 +859,7 @@ CREATE PROCEDURE sp_listar_hu_epica (
   IN p_epica_id INT
 )
 BEGIN
-  SELECT * FROM historias_usuario WHERE epica_id = p_epica_id AND activa = TRUE ORDER BY orden, id;
+  SELECT * FROM historias_usuario WHERE epica_id = p_epica_id AND activa = TRUE ORDER BY es_actividad_cierre, orden, id;
 END$$
 DELIMITER ;
 
@@ -822,7 +872,7 @@ CREATE PROCEDURE sp_listar_hu_epica_todas (
   IN p_epica_id INT
 )
 BEGIN
-  SELECT * FROM historias_usuario WHERE epica_id = p_epica_id ORDER BY orden, id;
+  SELECT * FROM historias_usuario WHERE epica_id = p_epica_id ORDER BY es_actividad_cierre, orden, id;
 END$$
 DELIMITER ;
 
@@ -900,8 +950,12 @@ BEGIN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Las tareas matrices no se pueden agregar a la etapa de Desarrollo';
   END IF;
 
+  IF COALESCE(p_orden, 0) = 0 THEN
+    SELECT COALESCE(MAX(orden), 0) + 1 INTO p_orden FROM tareas_matrices WHERE etapa_id = p_etapa_id;
+  END IF;
+
   INSERT INTO tareas_matrices (etapa_id, titulo, descripcion, responsable, dias_estimados, orden)
-  VALUES (p_etapa_id, p_titulo, p_descripcion, p_responsable, COALESCE(p_dias_estimados, 0), COALESCE(p_orden, 0));
+  VALUES (p_etapa_id, p_titulo, p_descripcion, p_responsable, COALESCE(p_dias_estimados, 0), p_orden);
   SELECT LAST_INSERT_ID() AS id;
 END$$
 DELIMITER ;
@@ -1099,7 +1153,7 @@ BEGIN
       WHERE historia_usuario_id = p_historia_usuario_id AND tipo_marca <> 'cierre';
 
       IF v_max_fecha_trabajo IS NOT NULL AND v_max_fecha_trabajo > p_fecha THEN
-        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'El cierre debe quedar en el último día planificado de la actividad.';
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'El hito (fecha comprometida) debe quedar en el último día planificado de la HU.';
       END IF;
 
       DELETE FROM hu_dias_planificados
@@ -1111,7 +1165,7 @@ BEGIN
       LIMIT 1;
 
       IF v_fecha_cierre_actual IS NOT NULL AND p_fecha > v_fecha_cierre_actual THEN
-        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'No se pueden marcar días después del cierre de la actividad.';
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'No se pueden planificar días después del hito (fecha comprometida) de la HU.';
       END IF;
     END IF;
 
@@ -1152,32 +1206,13 @@ BEGIN
   FROM tarea_matriz_dias_planificados
   WHERE tarea_matriz_id = p_tarea_matriz_id AND fecha = p_fecha AND tipo_marca = p_tipo_marca;
 
+  -- A diferencia de las HU, una tarea matriz (Análisis y Diseño, Cierre,
+  -- ...) puede tener VARIOS hitos (fechas comprometidas) a la vez, en
+  -- cualquier posición: no hay hito único ni restricción de "último día".
   IF v_existe_mismo_tipo > 0 THEN
     DELETE FROM tarea_matriz_dias_planificados
     WHERE tarea_matriz_id = p_tarea_matriz_id AND fecha = p_fecha;
   ELSE
-    IF p_tipo_marca = 'cierre' THEN
-      SELECT MAX(fecha) INTO v_max_fecha_trabajo
-      FROM tarea_matriz_dias_planificados
-      WHERE tarea_matriz_id = p_tarea_matriz_id AND tipo_marca <> 'cierre';
-
-      IF v_max_fecha_trabajo IS NOT NULL AND v_max_fecha_trabajo > p_fecha THEN
-        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'El cierre debe quedar en el último día planificado de la actividad.';
-      END IF;
-
-      DELETE FROM tarea_matriz_dias_planificados
-      WHERE tarea_matriz_id = p_tarea_matriz_id AND tipo_marca = 'cierre';
-    ELSE
-      SELECT fecha INTO v_fecha_cierre_actual
-      FROM tarea_matriz_dias_planificados
-      WHERE tarea_matriz_id = p_tarea_matriz_id AND tipo_marca = 'cierre'
-      LIMIT 1;
-
-      IF v_fecha_cierre_actual IS NOT NULL AND p_fecha > v_fecha_cierre_actual THEN
-        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'No se pueden marcar días después del cierre de la actividad.';
-      END IF;
-    END IF;
-
     DELETE FROM tarea_matriz_dias_planificados
     WHERE tarea_matriz_id = p_tarea_matriz_id AND fecha = p_fecha;
     INSERT INTO tarea_matriz_dias_planificados (tarea_matriz_id, fecha, tipo_marca)
@@ -1386,7 +1421,7 @@ BEGIN
       WHERE historia_usuario_id = p_historia_usuario_id AND tipo_marca <> 'cierre';
 
       IF v_max_fecha_trabajo IS NOT NULL AND v_max_fecha_trabajo > p_fecha THEN
-        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'El cierre debe quedar en el último día real de la actividad.';
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'El hito de cierre real debe quedar en el último día real de la HU.';
       END IF;
 
       DELETE FROM hu_dias_reales
@@ -1398,7 +1433,7 @@ BEGIN
       LIMIT 1;
 
       IF v_fecha_cierre_actual IS NOT NULL AND p_fecha > v_fecha_cierre_actual THEN
-        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'No se pueden marcar días después del cierre real de la actividad.';
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'No se pueden marcar días después del hito de cierre real de la HU.';
       END IF;
     END IF;
 
@@ -1439,32 +1474,13 @@ BEGIN
   FROM tarea_matriz_dias_reales
   WHERE tarea_matriz_id = p_tarea_matriz_id AND fecha = p_fecha AND tipo_marca = p_tipo_marca;
 
+  -- Varios hitos reales permitidos (ver sp_marcar_dia_tarea_matriz). La
+  -- tarea se considera cerrada cuando su último día marcado es un hito
+  -- (ver lib/hitos.ts y sp_resumen_cumplimiento_proyectos).
   IF v_existe_mismo_tipo > 0 THEN
     DELETE FROM tarea_matriz_dias_reales
     WHERE tarea_matriz_id = p_tarea_matriz_id AND fecha = p_fecha;
   ELSE
-    IF p_tipo_marca = 'cierre' THEN
-      SELECT MAX(fecha) INTO v_max_fecha_trabajo
-      FROM tarea_matriz_dias_reales
-      WHERE tarea_matriz_id = p_tarea_matriz_id AND tipo_marca <> 'cierre';
-
-      IF v_max_fecha_trabajo IS NOT NULL AND v_max_fecha_trabajo > p_fecha THEN
-        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'El cierre debe quedar en el último día real de la actividad.';
-      END IF;
-
-      DELETE FROM tarea_matriz_dias_reales
-      WHERE tarea_matriz_id = p_tarea_matriz_id AND tipo_marca = 'cierre';
-    ELSE
-      SELECT fecha INTO v_fecha_cierre_actual
-      FROM tarea_matriz_dias_reales
-      WHERE tarea_matriz_id = p_tarea_matriz_id AND tipo_marca = 'cierre'
-      LIMIT 1;
-
-      IF v_fecha_cierre_actual IS NOT NULL AND p_fecha > v_fecha_cierre_actual THEN
-        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'No se pueden marcar días después del cierre real de la actividad.';
-      END IF;
-    END IF;
-
     DELETE FROM tarea_matriz_dias_reales
     WHERE tarea_matriz_id = p_tarea_matriz_id AND fecha = p_fecha;
     INSERT INTO tarea_matriz_dias_reales (tarea_matriz_id, fecha, tipo_marca)
@@ -1725,12 +1741,21 @@ BEGIN
       )
     GROUP BY et.proyecto_id
   ) cerradas_hu ON cerradas_hu.proyecto_id = p.id
+  -- Tareas matrices: pueden tener varios hitos reales, así que "cerrada"
+  -- = su último hito real es >= a su último día de trabajo real.
   LEFT JOIN (
-    SELECT et.proyecto_id, COUNT(DISTINCT t.id) AS cerradas
-    FROM tarea_matriz_dias_reales d
-    JOIN tareas_matrices t ON d.tarea_matriz_id = t.id
+    SELECT et.proyecto_id, COUNT(*) AS cerradas
+    FROM (
+      SELECT d.tarea_matriz_id,
+             MAX(CASE WHEN d.tipo_marca = 'cierre' THEN d.fecha END) AS ultimo_hito,
+             MAX(CASE WHEN d.tipo_marca <> 'cierre' THEN d.fecha END) AS ultimo_trabajo
+      FROM tarea_matriz_dias_reales d
+      GROUP BY d.tarea_matriz_id
+    ) r
+    JOIN tareas_matrices t ON r.tarea_matriz_id = t.id
     JOIN etapas et ON t.etapa_id = et.id
-    WHERE d.tipo_marca = 'cierre'
+    WHERE r.ultimo_hito IS NOT NULL
+      AND (r.ultimo_trabajo IS NULL OR r.ultimo_hito >= r.ultimo_trabajo)
       AND EXISTS (
         SELECT 1 FROM tarea_matriz_dias_planificados dp WHERE dp.tarea_matriz_id = t.id AND dp.tipo_marca <> 'cierre'
       )
@@ -2166,5 +2191,271 @@ CREATE PROCEDURE sp_listar_cortes_observaciones (
 )
 BEGIN
   SELECT * FROM cortes_observaciones WHERE proyecto_id = p_proyecto_id ORDER BY fecha_hora ASC;
+END$$
+DELIMITER ;
+
+-- ========================================
+-- 17. EDICIÓN Y REORDENAMIENTO DE LA ESTRUCTURA
+-- ========================================
+
+DROP PROCEDURE IF EXISTS sp_actualizar_historia_usuario;
+DELIMITER $$
+CREATE PROCEDURE sp_actualizar_historia_usuario (
+  IN p_id INT,
+  IN p_codigo VARCHAR(50),
+  IN p_titulo VARCHAR(500),
+  IN p_descripcion LONGTEXT,
+  IN p_prioridad VARCHAR(20)
+)
+BEGIN
+  UPDATE historias_usuario
+  SET codigo = p_codigo,
+      titulo = p_titulo,
+      descripcion = p_descripcion,
+      prioridad = COALESCE(p_prioridad, prioridad)
+  WHERE id = p_id;
+  SELECT * FROM historias_usuario WHERE id = p_id;
+END$$
+DELIMITER ;
+
+DROP PROCEDURE IF EXISTS sp_renombrar_epica;
+DELIMITER $$
+CREATE PROCEDURE sp_renombrar_epica (
+  IN p_id INT,
+  IN p_nombre VARCHAR(500)
+)
+BEGIN
+  UPDATE epicas SET nombre = p_nombre WHERE id = p_id;
+  SELECT * FROM epicas WHERE id = p_id;
+END$$
+DELIMITER ;
+
+DROP PROCEDURE IF EXISTS sp_renombrar_modulo;
+DELIMITER $$
+CREATE PROCEDURE sp_renombrar_modulo (
+  IN p_id INT,
+  IN p_nombre VARCHAR(255)
+)
+BEGIN
+  UPDATE modulos SET nombre = p_nombre WHERE id = p_id;
+  SELECT * FROM modulos WHERE id = p_id;
+END$$
+DELIMITER ;
+
+DROP PROCEDURE IF EXISTS sp_actualizar_tarea_matriz;
+DELIMITER $$
+CREATE PROCEDURE sp_actualizar_tarea_matriz (
+  IN p_id INT,
+  IN p_titulo VARCHAR(500),
+  IN p_descripcion LONGTEXT
+)
+BEGIN
+  UPDATE tareas_matrices SET titulo = p_titulo, descripcion = p_descripcion WHERE id = p_id;
+  SELECT * FROM tareas_matrices WHERE id = p_id;
+END$$
+DELIMITER ;
+
+-- Reordena hermanos: p_ids es un array JSON con los ids en el orden
+-- deseado (ej. "[12, 7, 9]") y cada uno queda con orden = su posición
+-- (1..N). p_tipo: 'modulo' | 'epica' | 'hu' | 'tarea_matriz' |
+-- 'actividad_cierre'. Para 'actividad_cierre' (la lista del proyecto) el
+-- nuevo orden se propaga también a las HU de cierre ya creadas en cada
+-- funcionalidad.
+DROP PROCEDURE IF EXISTS sp_reordenar;
+DELIMITER $$
+CREATE PROCEDURE sp_reordenar (
+  IN p_tipo VARCHAR(30),
+  IN p_ids JSON
+)
+BEGIN
+  IF p_tipo = 'modulo' THEN
+    UPDATE modulos x
+    JOIN JSON_TABLE(p_ids, '$[*]' COLUMNS (pos FOR ORDINALITY, id INT PATH '$')) j ON x.id = j.id
+    SET x.orden = j.pos;
+  ELSEIF p_tipo = 'epica' THEN
+    UPDATE epicas x
+    JOIN JSON_TABLE(p_ids, '$[*]' COLUMNS (pos FOR ORDINALITY, id INT PATH '$')) j ON x.id = j.id
+    SET x.orden = j.pos;
+  ELSEIF p_tipo = 'hu' THEN
+    UPDATE historias_usuario x
+    JOIN JSON_TABLE(p_ids, '$[*]' COLUMNS (pos FOR ORDINALITY, id INT PATH '$')) j ON x.id = j.id
+    SET x.orden = j.pos;
+  ELSEIF p_tipo = 'tarea_matriz' THEN
+    UPDATE tareas_matrices x
+    JOIN JSON_TABLE(p_ids, '$[*]' COLUMNS (pos FOR ORDINALITY, id INT PATH '$')) j ON x.id = j.id
+    SET x.orden = j.pos;
+  ELSEIF p_tipo = 'actividad_cierre' THEN
+    UPDATE proyecto_actividades_cierre x
+    JOIN JSON_TABLE(p_ids, '$[*]' COLUMNS (pos FOR ORDINALITY, id INT PATH '$')) j ON x.id = j.id
+    SET x.orden = j.pos;
+    UPDATE historias_usuario h
+    JOIN JSON_TABLE(p_ids, '$[*]' COLUMNS (pos FOR ORDINALITY, id INT PATH '$')) j ON h.actividad_cierre_id = j.id
+    SET h.orden = j.pos;
+  ELSE
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Tipo de reordenamiento inválido';
+  END IF;
+END$$
+DELIMITER ;
+
+-- ========================================
+-- 18. EDICIÓN DE SPRINTS
+-- ========================================
+-- Cambia las fechas de un sprint. p_desplazar = TRUE corre todos los
+-- sprints siguientes del PI la misma cantidad de días que se movió la
+-- fecha de fin (sirve para "ampliar" el planificado sin superponer). Sin
+-- desplazar, se valida que no se pise con el sprint siguiente. Las marcas
+-- del Gantt que queden fuera de las columnas nuevas no se borran, solo
+-- dejan de verse.
+DROP PROCEDURE IF EXISTS sp_actualizar_sprint;
+DELIMITER $$
+CREATE PROCEDURE sp_actualizar_sprint (
+  IN p_id INT,
+  IN p_fecha_inicio DATE,
+  IN p_fecha_fin DATE,
+  IN p_desplazar BOOLEAN
+)
+BEGIN
+  DECLARE v_pi_id INT;
+  DECLARE v_numero INT;
+  DECLARE v_fin_anterior DATE;
+  DECLARE v_fin_previo DATE;
+  DECLARE v_inicio_siguiente DATE;
+  DECLARE v_delta INT;
+
+  SELECT pi_id, numero, fecha_fin INTO v_pi_id, v_numero, v_fin_anterior FROM sprints WHERE id = p_id;
+  IF v_pi_id IS NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Sprint inexistente';
+  END IF;
+
+  IF p_fecha_fin < p_fecha_inicio THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'La fecha de fin no puede ser anterior a la de inicio';
+  END IF;
+
+  SELECT fecha_fin INTO v_fin_previo FROM sprints
+  WHERE pi_id = v_pi_id AND numero < v_numero ORDER BY numero DESC LIMIT 1;
+  IF v_fin_previo IS NOT NULL AND p_fecha_inicio <= v_fin_previo THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Las fechas se superponen con el sprint anterior';
+  END IF;
+
+  IF p_desplazar THEN
+    SET v_delta = DATEDIFF(p_fecha_fin, v_fin_anterior);
+    UPDATE sprints
+    SET fecha_inicio = DATE_ADD(fecha_inicio, INTERVAL v_delta DAY),
+        fecha_fin = DATE_ADD(fecha_fin, INTERVAL v_delta DAY)
+    WHERE pi_id = v_pi_id AND numero > v_numero;
+  ELSE
+    SELECT fecha_inicio INTO v_inicio_siguiente FROM sprints
+    WHERE pi_id = v_pi_id AND numero > v_numero ORDER BY numero ASC LIMIT 1;
+    IF v_inicio_siguiente IS NOT NULL AND p_fecha_fin >= v_inicio_siguiente THEN
+      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Las fechas se superponen con el sprint siguiente (marcá "desplazar los siguientes")';
+    END IF;
+  END IF;
+
+  UPDATE sprints SET fecha_inicio = p_fecha_inicio, fecha_fin = p_fecha_fin WHERE id = p_id;
+  SELECT * FROM sprints WHERE pi_id = v_pi_id ORDER BY numero;
+END$$
+DELIMITER ;
+
+-- ========================================
+-- 19. ACTIVIDADES DE CIERRE POR FUNCIONALIDAD
+-- ========================================
+
+DROP PROCEDURE IF EXISTS sp_listar_actividades_cierre;
+DELIMITER $$
+CREATE PROCEDURE sp_listar_actividades_cierre (
+  IN p_proyecto_id INT
+)
+BEGIN
+  SELECT * FROM proyecto_actividades_cierre WHERE proyecto_id = p_proyecto_id ORDER BY orden, id;
+END$$
+DELIMITER ;
+
+DROP PROCEDURE IF EXISTS sp_configurar_actividades_cierre;
+DELIMITER $$
+CREATE PROCEDURE sp_configurar_actividades_cierre (
+  IN p_proyecto_id INT,
+  IN p_auto BOOLEAN
+)
+BEGIN
+  UPDATE proyectos SET auto_actividades_cierre = p_auto WHERE id = p_proyecto_id;
+  SELECT * FROM proyectos WHERE id = p_proyecto_id;
+END$$
+DELIMITER ;
+
+DROP PROCEDURE IF EXISTS sp_crear_actividad_cierre;
+DELIMITER $$
+CREATE PROCEDURE sp_crear_actividad_cierre (
+  IN p_proyecto_id INT,
+  IN p_nombre VARCHAR(500)
+)
+BEGIN
+  DECLARE v_orden INT DEFAULT 0;
+  SELECT COALESCE(MAX(orden), 0) + 1 INTO v_orden FROM proyecto_actividades_cierre WHERE proyecto_id = p_proyecto_id;
+  INSERT INTO proyecto_actividades_cierre (proyecto_id, nombre, orden) VALUES (p_proyecto_id, p_nombre, v_orden);
+  SELECT * FROM proyecto_actividades_cierre WHERE id = LAST_INSERT_ID();
+END$$
+DELIMITER ;
+
+-- Renombrar corrige también el título de las HU de cierre ya creadas que
+-- todavía tienen el nombre anterior (las que se editaron a mano en una
+-- funcionalidad puntual no se pisan).
+DROP PROCEDURE IF EXISTS sp_renombrar_actividad_cierre;
+DELIMITER $$
+CREATE PROCEDURE sp_renombrar_actividad_cierre (
+  IN p_id INT,
+  IN p_nombre VARCHAR(500)
+)
+BEGIN
+  DECLARE v_nombre_anterior VARCHAR(500);
+  SELECT nombre INTO v_nombre_anterior FROM proyecto_actividades_cierre WHERE id = p_id;
+  UPDATE historias_usuario SET titulo = p_nombre
+  WHERE actividad_cierre_id = p_id AND titulo = v_nombre_anterior;
+  UPDATE proyecto_actividades_cierre SET nombre = p_nombre WHERE id = p_id;
+  SELECT * FROM proyecto_actividades_cierre WHERE id = p_id;
+END$$
+DELIMITER ;
+
+-- Quita la actividad de la lista: las HU ya creadas con ese nombre se
+-- mantienen (actividad_cierre_id queda NULL por la FK).
+DROP PROCEDURE IF EXISTS sp_eliminar_actividad_cierre;
+DELIMITER $$
+CREATE PROCEDURE sp_eliminar_actividad_cierre (
+  IN p_id INT
+)
+BEGIN
+  DELETE FROM proyecto_actividades_cierre WHERE id = p_id;
+END$$
+DELIMITER ;
+
+-- Completa las funcionalidades (épicas activas) ya existentes del
+-- proyecto con las actividades de cierre de la lista que les falten:
+-- reactiva las que se habían eliminado y crea las que nunca existieron.
+DROP PROCEDURE IF EXISTS sp_aplicar_actividades_cierre;
+DELIMITER $$
+CREATE PROCEDURE sp_aplicar_actividades_cierre (
+  IN p_proyecto_id INT
+)
+BEGIN
+  DECLARE v_reactivadas INT DEFAULT 0;
+
+  UPDATE historias_usuario h
+  JOIN proyecto_actividades_cierre ac ON h.actividad_cierre_id = ac.id
+  SET h.activa = TRUE
+  WHERE ac.proyecto_id = p_proyecto_id AND h.activa = FALSE;
+  SET v_reactivadas = ROW_COUNT();
+
+  INSERT INTO historias_usuario (epica_id, titulo, es_actividad_cierre, actividad_cierre_id, orden)
+  SELECT e.id, ac.nombre, TRUE, ac.id, ac.orden
+  FROM epicas e
+  JOIN modulos m ON e.modulo_id = m.id
+  JOIN etapas et ON m.etapa_id = et.id
+  JOIN proyecto_actividades_cierre ac ON ac.proyecto_id = et.proyecto_id
+  WHERE et.proyecto_id = p_proyecto_id
+    AND e.activa = TRUE
+    AND NOT EXISTS (
+      SELECT 1 FROM historias_usuario h WHERE h.epica_id = e.id AND h.actividad_cierre_id = ac.id
+    );
+
+  SELECT ROW_COUNT() AS creadas, v_reactivadas AS reactivadas;
 END$$
 DELIMITER ;

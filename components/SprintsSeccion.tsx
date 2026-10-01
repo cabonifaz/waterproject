@@ -8,6 +8,7 @@
 import { useState } from 'react';
 import Modal from './Modal';
 import FormularioSprints from './FormularioSprints';
+import EditarSprintsModal from './EditarSprintsModal';
 import { Sprint } from '@/types';
 
 interface Props {
@@ -21,6 +22,7 @@ const formatFecha = (fecha: Date) =>
 
 const SprintsSeccion = ({ piId, sprints, onRefrescar }: Props) => {
   const [mostrarForm, setMostrarForm] = useState(false);
+  const [mostrarEditar, setMostrarEditar] = useState(false);
   const lista = sprints || [];
   const siguienteNumero = (lista[lista.length - 1]?.numero || 0) + 1;
   const mostrarPriorizacion = !lista.some((s) => s.tipo === 'priorizacion');
@@ -29,12 +31,22 @@ const SprintsSeccion = ({ piId, sprints, onRefrescar }: Props) => {
     <div className="bg-white rounded-lg shadow p-4 mb-6">
       <div className="flex justify-between items-center mb-3">
         <h2 className="font-bold text-gray-900">🗓️ Sprints</h2>
-        <button
-          onClick={() => setMostrarForm(true)}
-          className="text-xs px-3 py-1.5 bg-blue-100 hover:bg-blue-200 rounded-lg font-semibold text-blue-700"
-        >
-          ➕ Generar Sprints
-        </button>
+        <div className="flex gap-2">
+          {lista.length > 0 && (
+            <button
+              onClick={() => setMostrarEditar(true)}
+              className="text-xs px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg font-semibold text-slate-700"
+            >
+              ✏️ Editar fechas
+            </button>
+          )}
+          <button
+            onClick={() => setMostrarForm(true)}
+            className="text-xs px-3 py-1.5 bg-blue-100 hover:bg-blue-200 rounded-lg font-semibold text-blue-700"
+          >
+            ➕ Generar Sprints
+          </button>
+        </div>
       </div>
 
       {lista.length === 0 ? (
@@ -46,7 +58,9 @@ const SprintsSeccion = ({ piId, sprints, onRefrescar }: Props) => {
           {lista.map((s) => (
             <div
               key={s.id}
-              className={`flex-shrink-0 border rounded-lg px-3 py-2 text-center min-w-[110px] ${
+              onClick={() => setMostrarEditar(true)}
+              title="Editar fechas"
+              className={`flex-shrink-0 border rounded-lg px-3 py-2 text-center min-w-[110px] cursor-pointer hover:border-blue-400 ${
                 s.tipo === 'priorizacion' ? 'bg-gray-200 border-gray-300' : 'bg-slate-50 border-slate-200'
               }`}
             >
@@ -59,6 +73,10 @@ const SprintsSeccion = ({ piId, sprints, onRefrescar }: Props) => {
             </div>
           ))}
         </div>
+      )}
+
+      {mostrarEditar && (
+        <EditarSprintsModal piId={piId} sprints={lista} onClose={() => setMostrarEditar(false)} onCambio={onRefrescar} />
       )}
 
       {mostrarForm && (

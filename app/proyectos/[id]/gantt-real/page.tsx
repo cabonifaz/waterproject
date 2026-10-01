@@ -29,7 +29,9 @@ interface FilaGantt {
   etiqueta: string;
   contexto: string;
   marcasPermitidas: string[];
-  fechaCierre?: string;
+  fechaCierre?: string; // cierre efectivo (real): la actividad está cerrada
+  fechasHito?: string[]; // todos los hitos reales (las tareas matrices pueden tener varios)
+  esActividadCierre?: boolean; // HU de cierre obligatoria de la funcionalidad
   miembros: Miembro[];
   diasPropios?: number;
   diasPlanificadosPropios?: number;
@@ -166,25 +168,39 @@ function claveMarca(tipo: string, id: number, fecha: string): string {
 }
 
 interface IndiceMarcas {
-  conteos: Map<string, number>; // "tipo-id" -> días marcados (sin contar cierre)
-  cierres: Map<string, string>; // "tipo-id" -> fecha del cierre, si hay
+  conteos: Map<string, number>; // "tipo-id" -> días marcados (sin contar hitos)
+  hitos: Map<string, string[]>; // "tipo-id" -> fechas de hito, ordenadas
+  cierres: Map<string, string>; // "tipo-id" -> fecha de cierre efectiva, si la actividad cerró
 }
 
 // Agrupa el mapa plano de marcas ("tipo-id-fecha" -> tipo_marca) por fila,
 // para poder recalcular en vivo (sin round-trip al servidor) los días,
 // porcentajes y semáforo apenas cambia `marcas`/`marcasPlanificadas`.
+// Una tarea matriz puede tener varios hitos: cerró cuando su último día
+// marcado es un hito (mismo criterio que lib/hitos.ts).
 function indexarMarcasPorFila(marcas: Map<string, string>): IndiceMarcas {
   const conteos = new Map<string, number>();
-  const cierres = new Map<string, string>();
+  const hitos = new Map<string, string[]>();
+  const ultimoTrabajo = new Map<string, string>();
   for (const [key, valor] of marcas) {
     const filaKey = key.slice(0, key.length - 11); // quita "-yyyy-mm-dd" (11 chars)
+    const fecha = key.slice(key.length - 10);
     if (valor === 'cierre') {
-      cierres.set(filaKey, key.slice(key.length - 10));
+      hitos.set(filaKey, [...(hitos.get(filaKey) ?? []), fecha]);
     } else {
       conteos.set(filaKey, (conteos.get(filaKey) ?? 0) + 1);
+      const previo = ultimoTrabajo.get(filaKey);
+      if (previo == null || fecha > previo) ultimoTrabajo.set(filaKey, fecha);
     }
   }
-  return { conteos, cierres };
+  const cierres = new Map<string, string>();
+  for (const [filaKey, fechas] of hitos) {
+    fechas.sort();
+    const ultimoHito = fechas[fechas.length - 1];
+    const trabajo = ultimoTrabajo.get(filaKey);
+    if (trabajo == null || ultimoHito >= trabajo) cierres.set(filaKey, ultimoHito);
+  }
+  return { conteos, hitos, cierres };
 }
 
 // Igual que en el planificado, pero los días/porcentaje del título, el "H"
@@ -199,10 +215,11 @@ function construirItemsRender(estructura: EstructuraProyecto, indexReal: IndiceM
     const diasReales = indexReal.conteos.get(filaKey) ?? 0;
     const diasPlanificados = indexPlan.conteos.get(filaKey) ?? 0;
     const fechaCierre = indexReal.cierres.get(filaKey);
+    const fechasHito = indexReal.hitos.get(filaKey) ?? [];
     const cerrada = fechaCierre != null;
     const pct = topePorcentaje(porcentajeCumplim(diasReales, diasPlanificados), cerrada);
     const semaforo = calcularSemaforo(diasPlanificados, diasReales, cerrada);
-    return { diasReales, diasPlanificados, fechaCierre, porcentajeCumplimiento: pct, semaforo };
+    return { diasReales, diasPlanificados, fechaCierre, fechasHito, porcentajeCumplimiento: pct, semaforo };
   };
 
   for (const etapa of estructura.etapas) {
@@ -219,6 +236,7 @@ function construirItemsRender(estructura: EstructuraProyecto, indexReal: IndiceM
           contexto: etapa.nombre,
           marcasPermitidas: ['trabajo', 'cierre'],
           fechaCierre: calc.fechaCierre,
+          fechasHito: calc.fechasHito,
           miembros: t.miembros,
           diasPropios: calc.diasReales,
           diasPlanificadosPropios: calc.diasPlanificados,
@@ -248,6 +266,8 @@ function construirItemsRender(estructura: EstructuraProyecto, indexReal: IndiceM
               contexto: `${etapa.nombre} / ${modulo.nombre} / ${epica.nombre}`,
               marcasPermitidas: ['desarrollo', 'certificacion', 'cierre'],
               fechaCierre: calc.fechaCierre,
+              fechasHito: calc.fechasHito,
+              esActividadCierre: !!h.es_actividad_cierre,
               miembros: h.miembros,
               diasPropios: calc.diasReales,
               diasPlanificadosPropios: calc.diasPlanificados,
@@ -324,7 +344,7 @@ function labelSemaforo(semaforo: Semaforo, cerrada: boolean): string {
 const MODOS: { valor: Modo; label: string; color: string }[] = [
   { valor: 'desarrollo', label: '🟢 Desarrollo / Trabajo', color: 'bg-green-500' },
   { valor: 'certificacion', label: '🟠 Certificación', color: 'bg-orange-400' },
-  { valor: 'cierre', label: '🔵 Cierre', color: 'bg-blue-600' },
+  { valor: 'cierre', label: '🔵 Hito (cierre real)', color: 'bg-blue-600' },
 ];
 
 export default function GanttRealPage() {
@@ -533,7 +553,9 @@ export default function GanttRealPage() {
 
     setMarcas((prev) => {
       const next = new Map(prev);
-      if (tipoEfectivo === 'cierre') {
+      // HU: hito único (marcar uno nuevo mueve el anterior). Las tareas
+      // matrices admiten varios hitos.
+      if (tipoEfectivo === 'cierre' && fila.tipo === 'hu') {
         for (const k of Array.from(next.keys())) {
           if (k.startsWith(`${fila.tipo}-${fila.id}-`) && next.get(k) === 'cierre') next.delete(k);
         }
@@ -938,7 +960,7 @@ export default function GanttRealPage() {
                                   : !modoAplica
                                   ? 'El modo activo no aplica a esta actividad'
                                   : marcaPlan
-                                  ? `Planificado: ${marcaPlan}`
+                                  ? `Planificado: ${marcaPlan === 'cierre' ? 'hito (fecha comprometida)' : marcaPlan}`
                                   : undefined
                               }
                               style={{ gridColumn: 1 + i, gridRow: filaGrid, height: ALTO_FILA_DATO }}
@@ -1048,12 +1070,20 @@ export default function GanttRealPage() {
                           style={{ width: ANCHO_H }}
                           className="h-full bg-white border flex items-center justify-center flex-shrink-0"
                         >
-                          {fila.fechaCierre && (
+                          {fila.fechasHito && fila.fechasHito.length > 0 && (
                             <span
-                              title={`Fecha real de cierre: ${formatFechaCorta(fila.fechaCierre)}`}
-                              className="inline-flex items-center justify-center w-5 h-5 bg-blue-700 text-white text-[10px] font-bold rounded cursor-help"
+                              title={`${fila.fechaCierre ? `Cerrada el ${formatFechaCorta(fila.fechaCierre)}` : 'Todavía abierta'}${
+                                fila.fechasHito.length > 1
+                                  ? ` — hitos reales: ${fila.fechasHito.map(formatFechaCorta).join(', ')}`
+                                  : fila.fechaCierre
+                                  ? ''
+                                  : ` — hito real: ${formatFechaCorta(fila.fechasHito[0])}`
+                              }`}
+                              className={`inline-flex items-center justify-center min-w-[20px] h-5 px-0.5 text-[10px] font-bold rounded cursor-help ${
+                                fila.fechaCierre ? 'bg-blue-700 text-white' : 'bg-white text-blue-700 ring-1 ring-inset ring-blue-700'
+                              }`}
                             >
-                              H
+                              H{fila.fechasHito.length > 1 ? `×${fila.fechasHito.length}` : ''}
                             </span>
                           )}
                         </div>
@@ -1073,6 +1103,11 @@ export default function GanttRealPage() {
                               </span>
                             )}
                             <span className="min-w-0 line-clamp-2 leading-tight break-words">
+                              {fila.esActividadCierre && (
+                                <span title="Actividad de cierre de la funcionalidad" className="mr-1">
+                                  🏁
+                                </span>
+                              )}
                               {fila.etiqueta}
                               {fila.diasPropios != null && (
                                 <span className="font-normal text-gray-400">

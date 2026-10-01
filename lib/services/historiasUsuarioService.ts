@@ -59,3 +59,17 @@ export async function eliminarHistoriaUsuario(id: number): Promise<void> {
 export async function reactivarHistoriaUsuario(id: number): Promise<void> {
   await executeProcedure('sp_reactivar_historia_usuario', [id]);
 }
+
+export async function actualizarHistoriaUsuario(
+  id: number,
+  datos: { codigo?: string | null; titulo: string; descripcion?: string | null; prioridad?: string | null }
+): Promise<HistoriaUsuario> {
+  const rows = await executeProcedure<HistoriaUsuario>('sp_actualizar_historia_usuario', [
+    id,
+    datos.codigo || null,
+    datos.titulo,
+    datos.descripcion || null,
+    datos.prioridad || null,
+  ]);
+  return rows[0];
+}

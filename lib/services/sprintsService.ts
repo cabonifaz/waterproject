@@ -31,3 +31,12 @@ export async function listarSprintsPI(piId: number): Promise<Sprint[]> {
 export async function listarSprintsProyecto(proyectoId: number): Promise<Sprint[]> {
   return executeProcedure<Sprint>('sp_listar_sprints_proyecto', [proyectoId]);
 }
+
+// Cambia las fechas de un sprint; con `desplazar` corre también los
+// siguientes del PI (para ampliar el planificado sin superponer).
+export async function actualizarSprint(
+  id: number,
+  datos: { fecha_inicio: string; fecha_fin: string; desplazar?: boolean }
+): Promise<Sprint[]> {
+  return executeProcedure<Sprint>('sp_actualizar_sprint', [id, datos.fecha_inicio, datos.fecha_fin, !!datos.desplazar]);
+}

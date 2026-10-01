@@ -30,3 +30,11 @@ export async function actualizarDiasRestantes(id: number, dias: number | null): 
   const rows = await executeProcedure<TareaMatriz>('sp_actualizar_dias_restantes_tarea_matriz', [id, dias]);
   return rows[0];
 }
+
+export async function actualizarTareaMatriz(
+  id: number,
+  datos: { titulo: string; descripcion?: string | null }
+): Promise<TareaMatriz> {
+  const rows = await executeProcedure<TareaMatriz>('sp_actualizar_tarea_matriz', [id, datos.titulo, datos.descripcion || null]);
+  return rows[0];
+}

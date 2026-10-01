@@ -3,6 +3,7 @@
 'use client';
 
 import { useState } from 'react';
+import ListaNombresEditable from './ListaNombresEditable';
 
 interface Props {
   piId: number;
@@ -21,9 +22,16 @@ const FormularioProyecto = ({ piId, celulaId, onSuccess }: Props) => {
   const [descripcion, setDescripcion] = useState('');
   const [fechaInicio, setFechaInicio] = useState(new Date().toISOString().split('T')[0]);
   const [usarPlantilla, setUsarPlantilla] = useState(true);
+  const [autoActividadesCierre, setAutoActividadesCierre] = useState(false);
+  const [actividadesCierre, setActividadesCierre] = useState<string[]>([]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const nombresCierre = actividadesCierre.map((n) => n.trim()).filter(Boolean);
+    if (autoActividadesCierre && nombresCierre.length === 0) {
+      setError('Agregá al menos una actividad de cierre, o desmarcá la opción.');
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -37,6 +45,8 @@ const FormularioProyecto = ({ piId, celulaId, onSuccess }: Props) => {
           usarPlantilla,
           pi_id: piId,
           celula_id: celulaId,
+          auto_actividades_cierre: autoActividadesCierre,
+          actividades_cierre: autoActividadesCierre ? nombresCierre : [],
         }),
       });
       const data = await res.json();
@@ -101,6 +111,29 @@ const FormularioProyecto = ({ piId, celulaId, onSuccess }: Props) => {
             </span>
           </span>
         </label>
+      </div>
+
+      <div>
+        <label className="flex items-start gap-2 text-sm text-gray-700">
+          <input
+            type="checkbox"
+            checked={autoActividadesCierre}
+            onChange={(e) => setAutoActividadesCierre(e.target.checked)}
+            className="mt-1"
+          />
+          <span>
+            Crear actividades de cierre en cada funcionalidad
+            <span className="block text-xs text-gray-400 mt-1">
+              Cada épica / funcionalidad nueva va a nacer con estas actividades obligatorias al final. Después se
+              pueden corregir, reordenar o ampliar desde la estructura del proyecto.
+            </span>
+          </span>
+        </label>
+        {autoActividadesCierre && (
+          <div className="mt-2 ml-6">
+            <ListaNombresEditable valores={actividadesCierre} onChange={setActividadesCierre} />
+          </div>
+        )}
       </div>
 
       <button

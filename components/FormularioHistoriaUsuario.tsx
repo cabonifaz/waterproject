@@ -1,13 +1,16 @@
 // components/FormularioHistoriaUsuario.tsx
 // No pide días ni responsable: eso se define después en el Gantt
-// planificado (marcando los días de desarrollo/certificación).
+// planificado (marcando los días de desarrollo/certificación). Con
+// `historia` funciona en modo edición (PATCH) en vez de crear.
 
 'use client';
 
 import { useState } from 'react';
+import { HistoriaUsuario } from '@/types';
 
 interface Props {
-  epicaId: number;
+  epicaId?: number;
+  historia?: HistoriaUsuario;
   onSuccess: () => void;
 }
 
@@ -15,14 +18,15 @@ const inputClass =
   'w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500';
 const labelClass = 'block text-sm font-medium text-gray-700 mb-1';
 
-const FormularioHistoriaUsuario = ({ epicaId, onSuccess }: Props) => {
+const FormularioHistoriaUsuario = ({ epicaId, historia, onSuccess }: Props) => {
+  const editando = historia != null;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [formData, setFormData] = useState({
-    codigo: '',
-    titulo: '',
-    descripcion: '',
-    prioridad: 'media',
+    codigo: historia?.codigo || '',
+    titulo: historia?.titulo || '',
+    descripcion: historia?.descripcion || '',
+    prioridad: historia?.prioridad || 'media',
   });
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -35,11 +39,11 @@ const FormularioHistoriaUsuario = ({ epicaId, onSuccess }: Props) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/historias-usuario', {
-        method: 'POST',
+      const res = await fetch(editando ? `/api/historias-usuario/${historia.id}` : '/api/historias-usuario', {
+        method: editando ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          epica_id: epicaId,
+          epica_id: editando ? undefined : epicaId,
           codigo: formData.codigo || undefined,
           titulo: formData.titulo,
           descripcion: formData.descripcion || undefined,
@@ -47,7 +51,8 @@ const FormularioHistoriaUsuario = ({ epicaId, onSuccess }: Props) => {
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Error al crear la historia de usuario');
+      if (!res.ok)
+        throw new Error(data.error || (editando ? 'Error al guardar la historia de usuario' : 'Error al crear la historia de usuario'));
       onSuccess();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error desconocido');
@@ -101,21 +106,29 @@ const FormularioHistoriaUsuario = ({ epicaId, onSuccess }: Props) => {
           name="descripcion"
           value={formData.descripcion}
           onChange={handleChange}
-          rows={2}
+          rows={editando ? 4 : 2}
           className={inputClass}
         />
       </div>
 
-      <p className="text-xs text-gray-400">
-        Los días de desarrollo/certificación y el cierre se marcan después en el Gantt planificado.
-      </p>
+      {!editando && (
+        <p className="text-xs text-gray-400">
+          Los días de desarrollo/certificación y el hito se marcan después en el Gantt planificado.
+        </p>
+      )}
 
       <button
         type="submit"
         disabled={loading}
         className="w-full px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 font-semibold transition-colors"
       >
-        {loading ? '⏳ Creando...' : '✓ Crear Historia de Usuario'}
+        {loading
+          ? editando
+            ? '⏳ Guardando...'
+            : '⏳ Creando...'
+          : editando
+          ? '✓ Guardar cambios'
+          : '✓ Crear Historia de Usuario'}
       </button>
     </form>
   );

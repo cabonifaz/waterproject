@@ -5,14 +5,19 @@
 import { useState } from 'react';
 import Modal from './Modal';
 import FormularioHistoriaUsuario from './FormularioHistoriaUsuario';
+import FormularioNombreSimple from './FormularioNombreSimple';
 import SelectorMiembros from './SelectorMiembros';
-import { EpicaConHU, Miembro } from '@/types';
+import BotonesOrden from './BotonesOrden';
+import { EpicaConHU, HistoriaUsuario, Miembro } from '@/types';
 import { diasPlanificadosEpica, calcularPorcentaje } from '@/lib/planificacion';
+import { fechasHito, formatFechaCorta } from '@/lib/hitos';
 
 interface Props {
   epica: EpicaConHU;
   miembrosProyecto: Miembro[];
   totalGeneral: number;
+  idsHermanas: number[]; // épicas del módulo, en orden — para ▲▼
+  indice: number;
   onRefrescar: () => void;
 }
 
@@ -27,21 +32,21 @@ const getPrioridadColor = (prioridad: string) => {
   }
 };
 
-const formatFechaCorta = (fecha: string) =>
-  new Date(fecha.slice(0, 10) + 'T00:00:00').toLocaleDateString('es', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-  });
-
-const EpicaSeccion = ({ epica, miembrosProyecto, totalGeneral, onRefrescar }: Props) => {
+const EpicaSeccion = ({ epica, miembrosProyecto, totalGeneral, idsHermanas, indice, onRefrescar }: Props) => {
   const [mostrarForm, setMostrarForm] = useState(false);
+  const [editandoEpica, setEditandoEpica] = useState(false);
+  const [editandoHU, setEditandoHU] = useState<HistoriaUsuario | null>(null);
   const [cerrando, setCerrando] = useState<number | null>(null);
   const [eliminando, setEliminando] = useState<number | null>(null);
   const [eliminandoEpica, setEliminandoEpica] = useState(false);
   const [expandido, setExpandido] = useState(true);
   const diasEpica = diasPlanificadosEpica(epica);
   const porcentajeEpica = calcularPorcentaje(diasEpica, totalGeneral);
+
+  // Las HU comunes y las actividades de cierre se reordenan cada grupo por
+  // separado: las de cierre siempre van al final de la funcionalidad.
+  const idsComunes = epica.historias.filter((h) => !h.es_actividad_cierre).map((h) => h.id);
+  const idsCierre = epica.historias.filter((h) => h.es_actividad_cierre).map((h) => h.id);
 
   const handleCerrar = async (id: number) => {
     setCerrando(id);
@@ -85,7 +90,8 @@ const EpicaSeccion = ({ epica, miembrosProyecto, totalGeneral, onRefrescar }: Pr
 
   return (
     <div className="ml-4 mt-3 rounded-lg overflow-hidden border border-blue-200">
-      <div className="flex justify-between items-center px-3 py-1.5 bg-blue-100">
+      <div className="flex justify-between items-center px-3 py-1.5 bg-blue-100 gap-2">
+        <BotonesOrden tipo="epica" ids={idsHermanas} indice={indice} onMovido={onRefrescar} />
         <button
           onClick={() => setExpandido((v) => !v)}
           className="flex-1 text-left"
@@ -107,6 +113,13 @@ const EpicaSeccion = ({ epica, miembrosProyecto, totalGeneral, onRefrescar }: Pr
             ➕ Historia de Usuario
           </button>
           <button
+            onClick={() => setEditandoEpica(true)}
+            title="Editar épica / funcionalidad"
+            className="text-xs text-blue-700 hover:text-blue-900"
+          >
+            ✏️
+          </button>
+          <button
             onClick={handleEliminarEpica}
             disabled={eliminandoEpica}
             title="Eliminar épica"
@@ -122,7 +135,10 @@ const EpicaSeccion = ({ epica, miembrosProyecto, totalGeneral, onRefrescar }: Pr
           <table className="w-full text-xs">
             <thead className="bg-slate-50 border-b">
               <tr>
-                <th className="px-2 py-2 text-center font-semibold w-8"></th>
+                <th className="px-1 py-2 w-6"></th>
+                <th className="px-2 py-2 text-center font-semibold w-8" title="Hito: fecha comprometida (planificada)">
+                  H
+                </th>
                 <th className="px-3 py-2 text-left font-semibold">Código</th>
                 <th className="px-3 py-2 text-left font-semibold">Título</th>
                 <th className="px-3 py-2 text-center font-semibold">Prioridad</th>
@@ -130,20 +146,27 @@ const EpicaSeccion = ({ epica, miembrosProyecto, totalGeneral, onRefrescar }: Pr
                 <th className="px-3 py-2 text-center font-semibold">Días Cert. (Gantt)</th>
                 <th className="px-3 py-2 text-center font-semibold">Miembros</th>
                 <th className="px-3 py-2 text-center font-semibold">Estado</th>
-                <th className="px-2 py-2 text-center font-semibold w-8"></th>
+                <th className="px-2 py-2 text-center font-semibold w-14"></th>
               </tr>
             </thead>
             <tbody>
               {epica.historias.map((h) => {
                 const diasDev = h.diasPlanificados.filter((d) => d.tipo_marca === 'desarrollo').length;
                 const diasCert = h.diasPlanificados.filter((d) => d.tipo_marca === 'certificacion').length;
-                const marcaCierre = h.diasPlanificados.find((d) => d.tipo_marca === 'cierre');
+                const hito = fechasHito(h.diasPlanificados)[0];
+                const grupo = h.es_actividad_cierre ? idsCierre : idsComunes;
                 return (
-                  <tr key={h.id} className="border-b last:border-b-0">
+                  <tr
+                    key={h.id}
+                    className={`border-b last:border-b-0 ${h.es_actividad_cierre ? 'bg-amber-50/60' : ''}`}
+                  >
+                    <td className="px-1 py-2 text-center">
+                      <BotonesOrden tipo="hu" ids={grupo} indice={grupo.indexOf(h.id)} onMovido={onRefrescar} />
+                    </td>
                     <td className="px-2 py-2 text-center">
-                      {marcaCierre && (
+                      {hito && (
                         <span
-                          title={`Fecha planificada: ${formatFechaCorta(marcaCierre.fecha)}`}
+                          title={`Fecha comprometida: ${formatFechaCorta(hito)}`}
                           className="inline-flex items-center justify-center w-5 h-5 bg-blue-700 text-white text-[10px] font-bold rounded cursor-help"
                         >
                           H
@@ -151,7 +174,17 @@ const EpicaSeccion = ({ epica, miembrosProyecto, totalGeneral, onRefrescar }: Pr
                       )}
                     </td>
                     <td className="px-3 py-2 font-mono text-gray-500">{h.codigo || '—'}</td>
-                    <td className="px-3 py-2 font-medium text-gray-900">{h.titulo}</td>
+                    <td className="px-3 py-2 font-medium text-gray-900">
+                      {h.es_actividad_cierre && (
+                        <span
+                          title="Actividad de cierre de la funcionalidad"
+                          className="mr-1.5 px-1.5 py-0.5 rounded bg-amber-200 text-amber-900 text-[10px] font-bold"
+                        >
+                          🏁 Cierre
+                        </span>
+                      )}
+                      {h.titulo}
+                    </td>
                     <td className={`px-3 py-2 text-center ${getPrioridadColor(h.prioridad)}`}>{h.prioridad}</td>
                     <td className="px-3 py-2 text-center">{diasDev}</td>
                     <td className="px-3 py-2 text-center">{diasCert}</td>
@@ -178,7 +211,14 @@ const EpicaSeccion = ({ epica, miembrosProyecto, totalGeneral, onRefrescar }: Pr
                         </button>
                       )}
                     </td>
-                    <td className="px-2 py-2 text-center">
+                    <td className="px-2 py-2 text-center whitespace-nowrap">
+                      <button
+                        onClick={() => setEditandoHU(h)}
+                        title="Editar historia de usuario"
+                        className="text-gray-500 hover:text-gray-800 mr-1.5"
+                      >
+                        ✏️
+                      </button>
                       <button
                         onClick={() => handleEliminar(h.id, h.titulo)}
                         disabled={eliminando === h.id}
@@ -202,6 +242,35 @@ const EpicaSeccion = ({ epica, miembrosProyecto, totalGeneral, onRefrescar }: Pr
             epicaId={epica.id}
             onSuccess={() => {
               setMostrarForm(false);
+              onRefrescar();
+            }}
+          />
+        </Modal>
+      )}
+
+      {editandoHU && (
+        <Modal
+          titulo={editandoHU.es_actividad_cierre ? 'Editar Actividad de Cierre' : 'Editar Historia de Usuario'}
+          onClose={() => setEditandoHU(null)}
+        >
+          <FormularioHistoriaUsuario
+            historia={editandoHU}
+            onSuccess={() => {
+              setEditandoHU(null);
+              onRefrescar();
+            }}
+          />
+        </Modal>
+      )}
+
+      {editandoEpica && (
+        <Modal titulo="Editar Épica / Funcionalidad" onClose={() => setEditandoEpica(false)}>
+          <FormularioNombreSimple
+            endpoint={`/api/epicas/${epica.id}`}
+            labelNombre="Nombre de la épica / funcionalidad"
+            valorInicial={epica.nombre}
+            onSuccess={() => {
+              setEditandoEpica(false);
               onRefrescar();
             }}
           />
