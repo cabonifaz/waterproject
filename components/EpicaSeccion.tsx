@@ -173,9 +173,10 @@ const EpicaSeccion = ({ epica, miembrosProyecto, totalGeneral, idsHermanas, indi
                         </span>
                       )}
                     </td>
-                    <td className="px-3 py-2 font-mono text-gray-500">{h.codigo || '—'}</td>
+                    <td className="px-3 py-2 font-mono text-gray-500 whitespace-nowrap">{h.codigo || '—'}</td>
                     <td className="px-3 py-2 font-medium text-gray-900">
-                      {h.es_actividad_cierre && (
+                      {/* MySQL devuelve 0/1: sin !! React pinta el "0" */}
+                      {!!h.es_actividad_cierre && (
                         <span
                           title="Actividad de cierre de la funcionalidad"
                           className="mr-1.5 px-1.5 py-0.5 rounded bg-amber-200 text-amber-900 text-[10px] font-bold"

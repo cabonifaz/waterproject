@@ -57,13 +57,13 @@ export default function ProyectoEstructuraPage() {
       <Sidebar />
 
       <main className="flex-1 overflow-auto">
-        <div className="max-w-5xl mx-auto p-6">
+        <div className="max-w-[1920px] mx-auto p-6">
           {loading && <div className="animate-pulse h-32 bg-gray-200 rounded" />}
           {error && <div className="text-red-600">Error: {error}</div>}
 
           {!loading && !error && estructura && (
             <>
-              <div className="flex justify-between items-center mb-6">
+              <div className="flex flex-wrap justify-between items-center gap-4 mb-6">
                 <div>
                   {estructura.proyecto.pi_id && (
                     <a
@@ -79,7 +79,7 @@ export default function ProyectoEstructuraPage() {
                     <p className="text-gray-600 mt-2">{estructura.proyecto.descripcion}</p>
                   )}
                 </div>
-                <div className="flex gap-3">
+                <div className="flex flex-wrap gap-3">
                   <a
                     href={estructura.proyecto.pi_id ? `/pis/${estructura.proyecto.pi_id}` : '/pis'}
                     className="px-6 py-3 bg-white border-2 border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 font-semibold transition-colors"
