@@ -2459,3 +2459,58 @@ BEGIN
   SELECT ROW_COUNT() AS creadas, v_reactivadas AS reactivadas;
 END$$
 DELIMITER ;
+
+-- ========================================
+-- 20. ASIGNACIÓN DE TALENTOS (MIEMBROS) EN LOTE
+-- ========================================
+-- Asigna varios miembros a varias actividades (HU y/o tareas matrices) de
+-- una vez. A diferencia de sp_asignar_miembro_hu (toggle de a uno), acá
+-- la acción es explícita e idempotente:
+--   'agregar'    -> suma los miembros a cada actividad (los que ya tenía quedan)
+--   'quitar'     -> saca esos miembros de cada actividad
+--   'reemplazar' -> cada actividad queda exactamente con esos miembros
+-- p_hu_ids / p_tm_ids / p_miembro_ids son arrays JSON de ids (ej. "[1,2]").
+DROP PROCEDURE IF EXISTS sp_asignar_miembros_lote;
+DELIMITER $$
+CREATE PROCEDURE sp_asignar_miembros_lote (
+  IN p_hu_ids JSON,
+  IN p_tm_ids JSON,
+  IN p_miembro_ids JSON,
+  IN p_accion VARCHAR(20)
+)
+BEGIN
+  IF p_accion NOT IN ('agregar', 'quitar', 'reemplazar') THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Acción inválida';
+  END IF;
+
+  IF p_accion = 'reemplazar' THEN
+    DELETE hm FROM hu_miembros hm
+    JOIN JSON_TABLE(p_hu_ids, '$[*]' COLUMNS (id INT PATH '$')) a ON hm.historia_usuario_id = a.id
+    WHERE NOT JSON_CONTAINS(p_miembro_ids, CAST(hm.miembro_id AS JSON));
+
+    DELETE tm FROM tarea_matriz_miembros tm
+    JOIN JSON_TABLE(p_tm_ids, '$[*]' COLUMNS (id INT PATH '$')) a ON tm.tarea_matriz_id = a.id
+    WHERE NOT JSON_CONTAINS(p_miembro_ids, CAST(tm.miembro_id AS JSON));
+  END IF;
+
+  IF p_accion IN ('agregar', 'reemplazar') THEN
+    INSERT IGNORE INTO hu_miembros (historia_usuario_id, miembro_id)
+    SELECT a.id, m.id
+    FROM JSON_TABLE(p_hu_ids, '$[*]' COLUMNS (id INT PATH '$')) a
+    CROSS JOIN JSON_TABLE(p_miembro_ids, '$[*]' COLUMNS (id INT PATH '$')) m;
+
+    INSERT IGNORE INTO tarea_matriz_miembros (tarea_matriz_id, miembro_id)
+    SELECT a.id, m.id
+    FROM JSON_TABLE(p_tm_ids, '$[*]' COLUMNS (id INT PATH '$')) a
+    CROSS JOIN JSON_TABLE(p_miembro_ids, '$[*]' COLUMNS (id INT PATH '$')) m;
+  ELSE
+    DELETE hm FROM hu_miembros hm
+    JOIN JSON_TABLE(p_hu_ids, '$[*]' COLUMNS (id INT PATH '$')) a ON hm.historia_usuario_id = a.id
+    JOIN JSON_TABLE(p_miembro_ids, '$[*]' COLUMNS (id INT PATH '$')) m ON hm.miembro_id = m.id;
+
+    DELETE tm FROM tarea_matriz_miembros tm
+    JOIN JSON_TABLE(p_tm_ids, '$[*]' COLUMNS (id INT PATH '$')) a ON tm.tarea_matriz_id = a.id
+    JOIN JSON_TABLE(p_miembro_ids, '$[*]' COLUMNS (id INT PATH '$')) m ON tm.miembro_id = m.id;
+  END IF;
+END$$
+DELIMITER ;

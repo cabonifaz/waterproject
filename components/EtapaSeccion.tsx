@@ -9,7 +9,8 @@ import FormularioTareaMatriz from './FormularioTareaMatriz';
 import ModuloSeccion from './ModuloSeccion';
 import SelectorMiembros from './SelectorMiembros';
 import BotonesOrden from './BotonesOrden';
-import { EtapaConContenido, Miembro, TareaMatriz } from '@/types';
+import { CasillaActividad, CasillaGrupo, claveTarea } from './SeleccionActividades';
+import { EtapaConContenido, Miembro, TareaMatrizConDias } from '@/types';
 import { diasPlanificadosEtapa, calcularPorcentaje } from '@/lib/planificacion';
 import { fechasHito, fechaCierreEfectiva, formatFechaCorta } from '@/lib/hitos';
 
@@ -30,7 +31,7 @@ const EtapaSeccion = ({ etapa, miembrosProyecto, totalGeneral, onRefrescar }: Pr
   const [expandido, setExpandido] = useState(true);
   const [mostrarFormTarea, setMostrarFormTarea] = useState(false);
   const [mostrarFormModulo, setMostrarFormModulo] = useState(false);
-  const [editandoTarea, setEditandoTarea] = useState<TareaMatriz | null>(null);
+  const [editandoTarea, setEditandoTarea] = useState<TareaMatrizConDias | null>(null);
   const idsTareas = etapa.tareasMatrices.map((t) => t.id);
   const idsModulos = etapa.modulos.map((m) => m.id);
 
@@ -82,7 +83,12 @@ const EtapaSeccion = ({ etapa, miembrosProyecto, totalGeneral, onRefrescar }: Pr
               <table className="w-full text-xs">
                 <thead className="bg-slate-50 border-b">
                   <tr>
-                    <th className="px-1 py-2 w-6"></th>
+                    <th className="px-1 py-2 w-10 text-left">
+                      <CasillaGrupo
+                        claves={idsTareas.map(claveTarea)}
+                        titulo="Seleccionar todas las tareas de la etapa (para asignar talentos)"
+                      />
+                    </th>
                     <th className="px-2 py-2 text-center font-semibold w-10" title="Hitos: fechas comprometidas (planificadas)">
                       H
                     </th>
@@ -104,8 +110,11 @@ const EtapaSeccion = ({ etapa, miembrosProyecto, totalGeneral, onRefrescar }: Pr
                     const cierreReal = fechaCierreEfectiva(t.diasReales);
                     return (
                       <tr key={t.id} className="border-b last:border-b-0">
-                        <td className="px-1 py-2 text-center">
-                          <BotonesOrden tipo="tarea_matriz" ids={idsTareas} indice={i} onMovido={onRefrescar} />
+                        <td className="px-1 py-2">
+                          <div className="flex items-center gap-1.5">
+                            <CasillaActividad clave={claveTarea(t.id)} />
+                            <BotonesOrden tipo="tarea_matriz" ids={idsTareas} indice={i} onMovido={onRefrescar} />
+                          </div>
                         </td>
                         <td className="px-2 py-2 text-center">
                           {hitos.length > 0 && (
@@ -189,6 +198,7 @@ const EtapaSeccion = ({ etapa, miembrosProyecto, totalGeneral, onRefrescar }: Pr
         <Modal titulo="Nueva Tarea Matriz" onClose={() => setMostrarFormTarea(false)}>
           <FormularioTareaMatriz
             etapaId={etapa.id}
+            miembrosProyecto={miembrosProyecto}
             onSuccess={() => {
               setMostrarFormTarea(false);
               onRefrescar();
@@ -201,6 +211,8 @@ const EtapaSeccion = ({ etapa, miembrosProyecto, totalGeneral, onRefrescar }: Pr
         <Modal titulo="Editar Tarea Matriz" onClose={() => setEditandoTarea(null)}>
           <FormularioTareaMatriz
             tarea={editandoTarea}
+            miembrosProyecto={miembrosProyecto}
+            miembrosAsignados={editandoTarea.miembros}
             onSuccess={() => {
               setEditandoTarea(null);
               onRefrescar();

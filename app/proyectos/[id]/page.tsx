@@ -12,6 +12,7 @@ import EtapaSeccion from '@/components/EtapaSeccion';
 import ModalEliminarProyecto from '@/components/ModalEliminarProyecto';
 import MiembrosSeccion from '@/components/MiembrosSeccion';
 import ActividadesCierreModal from '@/components/ActividadesCierreModal';
+import { ProveedorSeleccion, BarraAsignacionGrupo } from '@/components/SeleccionActividades';
 import { EstructuraProyecto } from '@/types';
 import { calcularTotalesPlanificados } from '@/lib/planificacion';
 
@@ -53,6 +54,7 @@ export default function ProyectoEstructuraPage() {
   }, [estructura]);
 
   return (
+    <ProveedorSeleccion>
     <div className="flex h-screen bg-gray-50">
       <Sidebar />
 
@@ -148,6 +150,10 @@ export default function ProyectoEstructuraPage() {
                   onRefrescar={cargarEstructura}
                 />
               ))}
+
+              <BarraAsignacionGrupo miembrosProyecto={estructura.miembros} onAsignado={cargarEstructura} />
+              {/* espacio para que la barra flotante no tape la última fila */}
+              <div className="h-20" />
             </>
           )}
 
@@ -195,5 +201,6 @@ export default function ProyectoEstructuraPage() {
         </div>
       </main>
     </div>
+    </ProveedorSeleccion>
   );
 }

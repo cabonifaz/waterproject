@@ -41,13 +41,13 @@ const SelectorMiembros = ({ endpoint, miembrosProyecto, miembrosAsignados, onRef
       <button
         onClick={() => setMostrarSelector(true)}
         className="text-xs font-semibold text-slate-600 hover:text-blue-700 hover:underline min-w-[24px]"
-        title="Asignar miembros"
+        title="Asignar talentos"
       >
         {miembrosAsignados.length > 0 ? miembrosAsignados.map((m) => m.iniciales).join('/') : '➕'}
       </button>
 
       {mostrarSelector && (
-        <Modal titulo="Asignar Miembros" onClose={() => setMostrarSelector(false)}>
+        <Modal titulo="Asignar talentos" onClose={() => setMostrarSelector(false)}>
           {miembrosProyecto.length === 0 ? (
             <p className="text-sm text-gray-400">
               Este proyecto todavía no tiene miembros cargados — agregalos primero desde &quot;👥 Miembros&quot;.

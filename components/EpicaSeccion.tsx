@@ -8,7 +8,8 @@ import FormularioHistoriaUsuario from './FormularioHistoriaUsuario';
 import FormularioNombreSimple from './FormularioNombreSimple';
 import SelectorMiembros from './SelectorMiembros';
 import BotonesOrden from './BotonesOrden';
-import { EpicaConHU, HistoriaUsuario, Miembro } from '@/types';
+import { CasillaActividad, CasillaGrupo, claveHU } from './SeleccionActividades';
+import { EpicaConHU, HistoriaUsuarioConDias, Miembro } from '@/types';
 import { diasPlanificadosEpica, calcularPorcentaje } from '@/lib/planificacion';
 import { fechasHito, formatFechaCorta } from '@/lib/hitos';
 
@@ -35,7 +36,7 @@ const getPrioridadColor = (prioridad: string) => {
 const EpicaSeccion = ({ epica, miembrosProyecto, totalGeneral, idsHermanas, indice, onRefrescar }: Props) => {
   const [mostrarForm, setMostrarForm] = useState(false);
   const [editandoEpica, setEditandoEpica] = useState(false);
-  const [editandoHU, setEditandoHU] = useState<HistoriaUsuario | null>(null);
+  const [editandoHU, setEditandoHU] = useState<HistoriaUsuarioConDias | null>(null);
   const [cerrando, setCerrando] = useState<number | null>(null);
   const [eliminando, setEliminando] = useState<number | null>(null);
   const [eliminandoEpica, setEliminandoEpica] = useState(false);
@@ -91,6 +92,10 @@ const EpicaSeccion = ({ epica, miembrosProyecto, totalGeneral, idsHermanas, indi
   return (
     <div className="ml-4 mt-3 rounded-lg overflow-hidden border border-blue-200">
       <div className="flex justify-between items-center px-3 py-1.5 bg-blue-100 gap-2">
+        <CasillaGrupo
+          claves={epica.historias.map((h) => claveHU(h.id))}
+          titulo="Seleccionar todas las actividades de la funcionalidad (para asignar talentos)"
+        />
         <BotonesOrden tipo="epica" ids={idsHermanas} indice={indice} onMovido={onRefrescar} />
         <button
           onClick={() => setExpandido((v) => !v)}
@@ -135,7 +140,7 @@ const EpicaSeccion = ({ epica, miembrosProyecto, totalGeneral, idsHermanas, indi
           <table className="w-full text-xs">
             <thead className="bg-slate-50 border-b">
               <tr>
-                <th className="px-1 py-2 w-6"></th>
+                <th className="px-1 py-2 w-10"></th>
                 <th className="px-2 py-2 text-center font-semibold w-8" title="Hito: fecha comprometida (planificada)">
                   H
                 </th>
@@ -160,8 +165,11 @@ const EpicaSeccion = ({ epica, miembrosProyecto, totalGeneral, idsHermanas, indi
                     key={h.id}
                     className={`border-b last:border-b-0 ${h.es_actividad_cierre ? 'bg-amber-50/60' : ''}`}
                   >
-                    <td className="px-1 py-2 text-center">
-                      <BotonesOrden tipo="hu" ids={grupo} indice={grupo.indexOf(h.id)} onMovido={onRefrescar} />
+                    <td className="px-1 py-2">
+                      <div className="flex items-center gap-1.5">
+                        <CasillaActividad clave={claveHU(h.id)} />
+                        <BotonesOrden tipo="hu" ids={grupo} indice={grupo.indexOf(h.id)} onMovido={onRefrescar} />
+                      </div>
                     </td>
                     <td className="px-2 py-2 text-center">
                       {hito && (
@@ -241,6 +249,7 @@ const EpicaSeccion = ({ epica, miembrosProyecto, totalGeneral, idsHermanas, indi
         <Modal titulo="Nueva Historia de Usuario" onClose={() => setMostrarForm(false)}>
           <FormularioHistoriaUsuario
             epicaId={epica.id}
+            miembrosProyecto={miembrosProyecto}
             onSuccess={() => {
               setMostrarForm(false);
               onRefrescar();
@@ -256,6 +265,8 @@ const EpicaSeccion = ({ epica, miembrosProyecto, totalGeneral, idsHermanas, indi
         >
           <FormularioHistoriaUsuario
             historia={editandoHU}
+            miembrosProyecto={miembrosProyecto}
+            miembrosAsignados={editandoHU.miembros}
             onSuccess={() => {
               setEditandoHU(null);
               onRefrescar();

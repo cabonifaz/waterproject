@@ -6,11 +6,16 @@
 'use client';
 
 import { useState } from 'react';
-import { HistoriaUsuario } from '@/types';
+import SelectorTalentos, { guardarTalentosLote } from './SelectorTalentos';
+import { HistoriaUsuario, Miembro } from '@/types';
 
 interface Props {
   epicaId?: number;
   historia?: HistoriaUsuario;
+  // Con miembrosProyecto se muestra la sección "Talentos" (asignación
+  // múltiple); miembrosAsignados son los que la HU ya tiene.
+  miembrosProyecto?: Miembro[];
+  miembrosAsignados?: Miembro[];
   onSuccess: () => void;
 }
 
@@ -18,8 +23,12 @@ const inputClass =
   'w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500';
 const labelClass = 'block text-sm font-medium text-gray-700 mb-1';
 
-const FormularioHistoriaUsuario = ({ epicaId, historia, onSuccess }: Props) => {
+const FormularioHistoriaUsuario = ({ epicaId, historia, miembrosProyecto, miembrosAsignados, onSuccess }: Props) => {
   const editando = historia != null;
+  const idsIniciales = (miembrosAsignados ?? []).map((m) => m.id);
+  const [talentos, setTalentos] = useState<number[]>(idsIniciales);
+  const talentosCambiaron =
+    talentos.length !== idsIniciales.length || talentos.some((id) => !idsIniciales.includes(id));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [formData, setFormData] = useState({
@@ -53,6 +62,10 @@ const FormularioHistoriaUsuario = ({ epicaId, historia, onSuccess }: Props) => {
       const data = await res.json();
       if (!res.ok)
         throw new Error(data.error || (editando ? 'Error al guardar la historia de usuario' : 'Error al crear la historia de usuario'));
+      const huId = editando ? historia.id : data.data?.id;
+      if (miembrosProyecto && huId && talentosCambiaron) {
+        await guardarTalentosLote({ huIds: [huId], tareaIds: [], miembroIds: talentos, accion: 'reemplazar' });
+      }
       onSuccess();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error desconocido');
@@ -110,6 +123,13 @@ const FormularioHistoriaUsuario = ({ epicaId, historia, onSuccess }: Props) => {
           className={inputClass}
         />
       </div>
+
+      {miembrosProyecto && (
+        <div>
+          <label className={labelClass}>Talentos asignados</label>
+          <SelectorTalentos miembrosProyecto={miembrosProyecto} seleccionados={talentos} onChange={setTalentos} />
+        </div>
+      )}
 
       {!editando && (
         <p className="text-xs text-gray-400">

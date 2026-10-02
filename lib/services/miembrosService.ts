@@ -35,6 +35,24 @@ export async function asignarMiembroTareaMatriz(tareaMatrizId: number, miembroId
   await executeProcedure('sp_asignar_miembro_tarea_matriz', [tareaMatrizId, miembroId]);
 }
 
+export type AccionAsignacionLote = 'agregar' | 'quitar' | 'reemplazar';
+
+// Asigna varios miembros a varias actividades de una vez (no es toggle:
+// la acción es explícita). Ver sp_asignar_miembros_lote.
+export async function asignarMiembrosLote(datos: {
+  huIds: number[];
+  tareaIds: number[];
+  miembroIds: number[];
+  accion: AccionAsignacionLote;
+}): Promise<void> {
+  await executeProcedure('sp_asignar_miembros_lote', [
+    JSON.stringify(datos.huIds),
+    JSON.stringify(datos.tareaIds),
+    JSON.stringify(datos.miembroIds),
+    datos.accion,
+  ]);
+}
+
 export async function listarAsignacionesHUProyecto(
   proyectoId: number
 ): Promise<Array<{ historia_usuario_id: number; miembro_id: number }>> {

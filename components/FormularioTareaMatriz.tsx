@@ -6,11 +6,16 @@
 'use client';
 
 import { useState } from 'react';
-import { TareaMatriz } from '@/types';
+import SelectorTalentos, { guardarTalentosLote } from './SelectorTalentos';
+import { Miembro, TareaMatriz } from '@/types';
 
 interface Props {
   etapaId?: number;
   tarea?: TareaMatriz;
+  // Con miembrosProyecto se muestra la sección "Talentos" (asignación
+  // múltiple); miembrosAsignados son los que la tarea ya tiene.
+  miembrosProyecto?: Miembro[];
+  miembrosAsignados?: Miembro[];
   onSuccess: () => void;
 }
 
@@ -18,8 +23,12 @@ const inputClass =
   'w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500';
 const labelClass = 'block text-sm font-medium text-gray-700 mb-1';
 
-const FormularioTareaMatriz = ({ etapaId, tarea, onSuccess }: Props) => {
+const FormularioTareaMatriz = ({ etapaId, tarea, miembrosProyecto, miembrosAsignados, onSuccess }: Props) => {
   const editando = tarea != null;
+  const idsIniciales = (miembrosAsignados ?? []).map((m) => m.id);
+  const [talentos, setTalentos] = useState<number[]>(idsIniciales);
+  const talentosCambiaron =
+    talentos.length !== idsIniciales.length || talentos.some((id) => !idsIniciales.includes(id));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [formData, setFormData] = useState({
@@ -48,6 +57,10 @@ const FormularioTareaMatriz = ({ etapaId, tarea, onSuccess }: Props) => {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || (editando ? 'Error al guardar la tarea matriz' : 'Error al crear la tarea matriz'));
+      const tareaId = editando ? tarea.id : data.data?.id;
+      if (miembrosProyecto && tareaId && talentosCambiaron) {
+        await guardarTalentosLote({ huIds: [], tareaIds: [tareaId], miembroIds: talentos, accion: 'reemplazar' });
+      }
       onSuccess();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error desconocido');
@@ -83,6 +96,13 @@ const FormularioTareaMatriz = ({ etapaId, tarea, onSuccess }: Props) => {
           className={inputClass}
         />
       </div>
+
+      {miembrosProyecto && (
+        <div>
+          <label className={labelClass}>Talentos asignados</label>
+          <SelectorTalentos miembrosProyecto={miembrosProyecto} seleccionados={talentos} onChange={setTalentos} />
+        </div>
+      )}
 
       {!editando && (
         <p className="text-xs text-gray-400">
