@@ -643,10 +643,12 @@ export default function GanttRealPage() {
               kind: 'fila',
               tipo: item.fila.tipo,
               id: item.fila.id,
-              etiqueta: item.fila.etiqueta + (item.fila.diasPropios != null ? sufijo(item.fila.diasPropios) : ''),
+              etiqueta: item.fila.etiqueta, // los días van en su propia columna (fórmula)
               contexto: item.fila.contexto,
               fechaCierre: item.fila.fechaCierre,
               miembros: item.fila.miembros.map((m) => m.iniciales).join('/'),
+              esActividadCierre: item.fila.esActividadCierre,
+              diasPlanificados: item.fila.diasPlanificadosPropios ?? 0,
             }
       );
 

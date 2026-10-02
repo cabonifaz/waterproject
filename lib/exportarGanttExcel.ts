@@ -1,10 +1,24 @@
 // lib/exportarGanttExcel.ts
 // Exporta el Gantt (Planificado o Real) completo a un .xlsx editable —
-// todos los sprints y todas las filas, no solo lo que entra en pantalla,
-// con los mismos colores que se ven en la app. Corre en el navegador
-// (exceljs también funciona del lado del cliente).
+// todos los sprints y todas las filas, en el mismo orden que en pantalla,
+// con los mismos colores. Corre en el navegador (exceljs también funciona
+// del lado del cliente).
+//
+// Los colores de las marcas NO se pintan fijos: son reglas de formato
+// condicional sobre el texto de la celda ("DE" desarrollo/trabajo, "HU"
+// certificación, "H" hito), igual que en el front — si se edita el Excel
+// (se escribe o borra una marca), la celda se recolorea sola. Lo mismo
+// los totales: días, H, % de cumplimiento y semáforo son fórmulas con
+// formato condicional, y se recalculan al editar.
+//
+// El archivo se puede volver a importar (importGanttExcelService): las
+// filas se identifican por la nota "tipo:id" de la columna Actividad y
+// los días por la nota con la fecha ISO del encabezado — las columnas de
+// totales del medio no tienen nota y el importador las ignora.
 
 'use client';
+
+import type { Worksheet, Workbook } from 'exceljs';
 
 export interface ColumnaExcel {
   fecha: string;
@@ -29,6 +43,8 @@ export type ItemExcel =
       contexto: string;
       fechaCierre?: string;
       miembros: string;
+      esActividadCierre?: boolean;
+      diasPlanificados?: number; // solo Real: referencia para el % de cumplimiento
     };
 
 export interface ExportarGanttOpciones {
@@ -42,7 +58,7 @@ export interface ExportarGanttOpciones {
   marcasPlanificadas?: Map<string, string>;
 }
 
-const COLOR = {
+export const COLOR = {
   etapaFondo: 'FF172554',
   etapaTexto: 'FFFFFFFF',
   moduloFondo: 'FFC7D2FE',
@@ -51,18 +67,24 @@ const COLOR = {
   epicaTexto: 'FF1E3A8A',
   grupoFondo: 'FFDCFCE7',
   grupoTexto: 'FF14532D',
-  diaFondo: 'FFF8FAFC',
+  diaFondo: 'FFF1F5F9',
   diaTexto: 'FF334155',
   feriadoFondo: 'FFFED7AA',
   feriadoTexto: 'FF9A3412',
   hoyFondo: 'FF9333EA',
   hoyTexto: 'FFFFFFFF',
+  hoyCelda: 'FFF3E8FF',
   desarrollo: 'FF22C55E',
   certificacion: 'FFFB923C',
   cierre: 'FF2563EB',
   celdaFeriado: 'FFFFEDD5',
+  cierreFuncionalidad: 'FFFFFBEB',
   blanco: 'FFFFFFFF',
-  borde: 'FF94A3B8',
+  borde: 'FF475569', // slate-600: bordes bien visibles al imprimir/ver en Excel
+  semaforoVerde: 'FF22C55E',
+  semaforoAmarillo: 'FFEAB308',
+  semaforoRojo: 'FFEF4444',
+  semaforoNegro: 'FF374151',
 } as const;
 
 const MARCA_COLOR: Record<string, string> = {
@@ -70,6 +92,15 @@ const MARCA_COLOR: Record<string, string> = {
   trabajo: COLOR.desarrollo,
   certificacion: COLOR.certificacion,
   cierre: COLOR.cierre,
+};
+
+// Texto que va en cada celda-día según la marca (lo que lee el importador
+// y lo que dispara el formato condicional).
+const TEXTO_MARCA: Record<string, string> = {
+  desarrollo: 'DE',
+  trabajo: 'DE',
+  certificacion: 'HU',
+  cierre: 'H',
 };
 
 function claveMarca(tipo: string, id: number, fecha: string): string {
@@ -87,91 +118,126 @@ function agruparConsecutivos<T>(items: T[], campo: (item: T) => string): { label
   return grupos;
 }
 
-function fillSolido(argb: string) {
+export function fillSolido(argb: string) {
   return { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb } };
 }
 
-function bordeFino(argb: string = COLOR.borde) {
+// En el formato condicional, Excel toma el color de relleno de bgColor.
+export function estiloCondicional(fondo: string, texto: string, negrita = false) {
+  return {
+    fill: { type: 'pattern' as const, pattern: 'solid' as const, bgColor: { argb: fondo } },
+    font: { color: { argb: texto }, bold: negrita },
+  };
+}
+
+export function bordeFino(argb: string = COLOR.borde) {
   const estilo = { style: 'thin' as const, color: { argb } };
   return { top: estilo, left: estilo, bottom: estilo, right: estilo };
 }
 
-const GROSOR_MES: import('exceljs').BorderStyle = 'thick';
-const GROSOR_SPRINT: import('exceljs').BorderStyle = 'medium';
 const COLOR_BORDE_MES = 'FF0F172A'; // slate-900, el separador más marcado
 const COLOR_BORDE_SPRINT = 'FF334155'; // slate-700
+const COLOR_BORDE_HOY = 'FF9333EA';
 
 // Borde de una celda-día: el lado izquierdo marca el inicio de mes (más
 // grueso) o de sprint (grueso) — igual que el border-l-4 / border-l-2 en
-// pantalla — y los otros tres lados quedan finos, o con el color/ancho de
-// la marca planificada de referencia (solo Gantt Real) si aplica.
-function bordeColumnaDia(esInicioMes: boolean, esInicioGrupo: boolean, colorReferencia?: string) {
+// pantalla —, la columna de HOY lleva los costados violetas, y los demás
+// lados quedan finos o con el color de la marca planificada de
+// referencia (solo Gantt Real) si aplica.
+function bordeColumnaDia(esInicioMes: boolean, esInicioGrupo: boolean, esHoy: boolean, colorReferencia?: string) {
   const ladoReferencia = colorReferencia
     ? { style: 'medium' as const, color: { argb: colorReferencia } }
     : { style: 'thin' as const, color: { argb: COLOR.borde } };
+  const ladoHoy = { style: 'medium' as const, color: { argb: COLOR_BORDE_HOY } };
 
   const ladoIzquierdo = esInicioMes
-    ? { style: GROSOR_MES, color: { argb: COLOR_BORDE_MES } }
+    ? { style: 'thick' as const, color: { argb: COLOR_BORDE_MES } }
     : esInicioGrupo
-    ? { style: GROSOR_SPRINT, color: { argb: COLOR_BORDE_SPRINT } }
+    ? { style: 'medium' as const, color: { argb: COLOR_BORDE_SPRINT } }
+    : esHoy
+    ? ladoHoy
     : ladoReferencia;
 
-  return { top: ladoReferencia, right: ladoReferencia, bottom: ladoReferencia, left: ladoIzquierdo };
+  return {
+    top: ladoReferencia,
+    bottom: ladoReferencia,
+    right: esHoy ? ladoHoy : ladoReferencia,
+    left: ladoIzquierdo,
+  };
+}
+
+export async function descargarWorkbook(workbook: Workbook, nombreArchivo: string): Promise<void> {
+  // Que Excel recalcule todas las fórmulas al abrir (exceljs no las calcula).
+  workbook.calcProperties.fullCalcOnLoad = true;
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${nombreArchivo}.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 export async function exportarGanttComoExcel(opciones: ExportarGanttOpciones): Promise<void> {
   const ExcelJS = (await import('exceljs')).default;
   const { columnas, items, marcas, marcasPlanificadas, nombreArchivo, nombreHoja } = opciones;
+  const esReal = marcasPlanificadas != null;
 
   const workbook = new ExcelJS.Workbook();
-  const hoja = workbook.addWorksheet(nombreHoja, {
-    views: [{ state: 'frozen', xSplit: 3, ySplit: 3 }],
+
+  // Columnas fijas (izquierda):
+  //   Planificado: A Actividad · B H · C Talentos · D Días
+  //   Real:        A Actividad · B H · C Talentos · D Días Plan. · E Días Real · F % Cumpl. · G Cerrada
+  const FIJAS = esReal
+    ? ['Actividad', 'H', 'Talentos', 'Días Plan.', 'Días Real', '% Cumpl.', 'Cerrada']
+    : ['Actividad', 'H', 'Talentos', 'Días'];
+  const COL_INICIO_DIAS = FIJAS.length + 1;
+  const COL_FIN_DIAS = COL_INICIO_DIAS + Math.max(columnas.length, 1) - 1;
+
+  const hoja: Worksheet = workbook.addWorksheet(nombreHoja, {
+    views: [{ state: 'frozen', xSplit: FIJAS.length, ySplit: 3 }],
   });
+  const letra = (col: number) => hoja.getColumn(col).letter;
+  const L_INI = letra(COL_INICIO_DIAS);
+  const L_FIN = letra(COL_FIN_DIAS);
 
-  const COL_INICIO_DIAS = 4; // A=Actividad, B=H, C=Miembros, D...=días
-
-  // Primer día de cada mes/sprint — misma lógica que "esInicioGrupo" en
-  // las páginas de Gantt, calculada acá para no depender de que el
-  // llamador la mande.
   const inicioMes = columnas.map((c, i) => i === 0 || c.mesLabel !== columnas[i - 1].mesLabel);
 
-  // Aplica el borde de columna (grosor de mes/sprint a la izquierda) a
-  // una fila completa de días — se reusa para las 3 filas de encabezado
-  // y para cada fila de actividad, así el separador queda como una línea
-  // continua de arriba a abajo.
   const aplicarBordesDia = (filaExcel: number, colorReferencia?: (i: number) => string | undefined) => {
     columnas.forEach((c, i) => {
       hoja.getCell(filaExcel, COL_INICIO_DIAS + i).border = bordeColumnaDia(
         inicioMes[i],
         c.esInicioGrupo,
+        !!c.esHoy,
         colorReferencia?.(i)
       );
     });
   };
 
-  hoja.getColumn(1).width = 42;
-  hoja.getColumn(2).width = 5;
-  hoja.getColumn(3).width = 16;
+  hoja.getColumn(1).width = 46;
+  hoja.getColumn(2).width = 6;
+  hoja.getColumn(3).width = 14;
+  for (let col = 4; col < COL_INICIO_DIAS; col++) hoja.getColumn(col).width = 9;
   for (let i = 0; i < columnas.length; i++) hoja.getColumn(COL_INICIO_DIAS + i).width = 5;
 
   // --- Encabezados (3 filas: meses, sprints, días) ---
-  hoja.mergeCells(1, 1, 3, 1);
-  hoja.mergeCells(1, 2, 3, 2);
-  hoja.mergeCells(1, 3, 3, 3);
-  const corner = [hoja.getCell(1, 1), hoja.getCell(1, 2), hoja.getCell(1, 3)];
-  corner[0].value = 'Actividad';
-  corner[1].value = 'H';
-  corner[2].value = 'Miembros';
-  for (const c of corner) {
+  FIJAS.forEach((titulo, k) => {
+    hoja.mergeCells(1, k + 1, 3, k + 1);
+    const c = hoja.getCell(1, k + 1);
+    c.value = titulo;
     c.fill = fillSolido(COLOR.diaFondo);
-    c.font = { bold: true };
+    c.font = { bold: true, size: 9 };
     c.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
     c.border = bordeFino();
-  }
+  });
 
-  const gruposMes = agruparConsecutivos(columnas, (c) => c.mesLabel);
   let colCursor = COL_INICIO_DIAS;
-  for (const g of gruposMes) {
+  for (const g of agruparConsecutivos(columnas, (c) => c.mesLabel)) {
     hoja.mergeCells(1, colCursor, 1, colCursor + g.cantidad - 1);
     const cell = hoja.getCell(1, colCursor);
     cell.value = g.label;
@@ -182,9 +248,8 @@ export async function exportarGanttComoExcel(opciones: ExportarGanttOpciones): P
   }
   aplicarBordesDia(1);
 
-  const gruposSprint = agruparConsecutivos(columnas, (c) => c.grupoLabel);
   colCursor = COL_INICIO_DIAS;
-  for (const g of gruposSprint) {
+  for (const g of agruparConsecutivos(columnas, (c) => c.grupoLabel)) {
     hoja.mergeCells(2, colCursor, 2, colCursor + g.cantidad - 1);
     const cell = hoja.getCell(2, colCursor);
     cell.value = g.label;
@@ -206,8 +271,7 @@ export async function exportarGanttComoExcel(opciones: ExportarGanttOpciones): P
     };
     cell.alignment = { horizontal: 'center', vertical: 'middle' };
     // Nota oculta con la fecha ISO exacta — así se puede reimportar este
-    // mismo archivo sin depender de parsear el texto visible de la celda
-    // (que solo trae día de semana + día del mes, sin año/mes).
+    // mismo archivo sin depender de parsear el texto visible de la celda.
     cell.note = c.fecha;
   });
   aplicarBordesDia(3);
@@ -223,7 +287,7 @@ export async function exportarGanttComoExcel(opciones: ExportarGanttOpciones): P
   for (const item of items) {
     if (item.kind === 'divisor') {
       const estilo = ESTILO_DIVISOR[item.nivel];
-      hoja.mergeCells(fila, 1, fila, 3);
+      hoja.mergeCells(fila, 1, fila, FIJAS.length);
       const label = hoja.getCell(fila, 1);
       label.value = item.label;
       label.fill = fillSolido(estilo.fondo);
@@ -232,66 +296,81 @@ export async function exportarGanttComoExcel(opciones: ExportarGanttOpciones): P
       label.border = bordeFino();
 
       if (columnas.length > 0) {
-        hoja.mergeCells(fila, COL_INICIO_DIAS, fila, COL_INICIO_DIAS + columnas.length - 1);
+        hoja.mergeCells(fila, COL_INICIO_DIAS, fila, COL_FIN_DIAS);
         const barra = hoja.getCell(fila, COL_INICIO_DIAS);
         barra.fill = fillSolido(estilo.fondo);
         barra.border = bordeFino();
       }
 
-      hoja.getRow(fila).height = 16;
+      hoja.getRow(fila).height = 18;
       fila++;
       continue;
     }
 
     const f = item;
-    hoja.getCell(fila, 1).value = f.etiqueta;
-    hoja.getCell(fila, 1).alignment = { indent: 2 };
-    hoja.getCell(fila, 1).font = { size: 9 };
+    const rango = `$${L_INI}${fila}:$${L_FIN}${fila}`;
+    const fondoFijas = f.esActividadCierre ? COLOR.cierreFuncionalidad : COLOR.blanco;
+
+    const celdaAct = hoja.getCell(fila, 1);
+    celdaAct.value = (f.esActividadCierre ? '🏁 ' : '') + f.etiqueta;
+    celdaAct.alignment = { indent: 2, vertical: 'middle', wrapText: true };
+    celdaAct.font = { size: 9 };
     // Nota oculta con la identidad real de la fila (tipo:id) — permite
     // reimportar este archivo identificando cada fila aunque se reordenen
     // o edite el texto de la etiqueta.
-    hoja.getCell(fila, 1).note = `${f.tipo}:${f.id}`;
+    celdaAct.note = `${f.tipo}:${f.id}`;
 
-    if (f.fechaCierre) {
-      const celdaH = hoja.getCell(fila, 2);
-      celdaH.value = 'H';
-      celdaH.fill = fillSolido(COLOR.cierre);
-      celdaH.font = { bold: true, color: { argb: COLOR.blanco }, size: 9 };
-      celdaH.alignment = { horizontal: 'center', vertical: 'middle' };
-      celdaH.note = `Fecha de cierre: ${f.fechaCierre}`;
-    }
+    // H: cantidad de hitos de la fila ("H", o "H×N" si hay varios).
+    const conteoH = `COUNTIF(${rango},"H")`;
+    hoja.getCell(fila, 2).value = {
+      formula: `IF(${conteoH}=0,"",IF(${conteoH}=1,"H","H×"&${conteoH}))`,
+    };
+    hoja.getCell(fila, 2).alignment = { horizontal: 'center', vertical: 'middle' };
+    hoja.getCell(fila, 2).font = { bold: true, size: 9 };
+    if (f.fechaCierre) hoja.getCell(fila, 2).note = esReal ? `Cierre real: ${f.fechaCierre}` : `Fecha comprometida: ${f.fechaCierre}`;
 
     hoja.getCell(fila, 3).value = f.miembros;
     hoja.getCell(fila, 3).font = { size: 8 };
-    hoja.getCell(fila, 3).alignment = { horizontal: 'center' };
+    hoja.getCell(fila, 3).alignment = { horizontal: 'center', vertical: 'middle' };
 
-    for (let c1 = 1; c1 <= 3; c1++) hoja.getCell(fila, c1).border = bordeFino();
+    const conteoDias = `COUNTIF(${rango},"DE")+COUNTIF(${rango},"HU")`;
+    if (esReal) {
+      hoja.getCell(fila, 4).value = f.diasPlanificados ?? 0;
+      hoja.getCell(fila, 5).value = { formula: conteoDias };
+      // Cerrada = el último día marcado de la fila es un hito (mismo
+      // criterio que lib/hitos.ts).
+      hoja.getCell(fila, 7).value = {
+        formula: `IF(IFERROR(LOOKUP(2,1/(${rango}<>""),${rango}),"")="H","Sí","No")`,
+      };
+      // % cumplimiento = reales / planificados; topeado a 100% mientras
+      // sigue abierta (igual que topePorcentaje en lib/avanceCedula.ts).
+      hoja.getCell(fila, 6).value = {
+        formula: `IF(D${fila}=0,"—",IF(G${fila}="Sí",E${fila}/D${fila},MIN(E${fila}/D${fila},1)))`,
+      };
+      hoja.getCell(fila, 6).numFmt = '0.0%';
+      hoja.getCell(fila, 6).font = { bold: true, size: 9 };
+    } else {
+      hoja.getCell(fila, 4).value = { formula: conteoDias };
+    }
+
+    for (let col = 1; col < COL_INICIO_DIAS; col++) {
+      const c = hoja.getCell(fila, col);
+      c.border = bordeFino();
+      if (col > 1) c.alignment = { horizontal: 'center', vertical: 'middle' };
+      if (col !== 2) c.fill = fillSolido(fondoFijas);
+    }
 
     columnas.forEach((c, i) => {
-      const col = COL_INICIO_DIAS + i;
-      const cell = hoja.getCell(fila, col);
+      const cell = hoja.getCell(fila, COL_INICIO_DIAS + i);
       const marca = marcas.get(claveMarca(f.tipo, f.id, c.fecha));
       const marcaPlan = marcasPlanificadas?.get(claveMarca(f.tipo, f.id, c.fecha));
-
-      const fondo = marca ? MARCA_COLOR[marca] : c.esFeriado ? COLOR.celdaFeriado : c.esHoy ? 'FFF3E8FF' : COLOR.blanco;
-      cell.fill = fillSolido(fondo);
-      if (marca === 'cierre') {
-        cell.value = 'H';
-        cell.font = { bold: true, color: { argb: COLOR.blanco }, size: 8 };
-        cell.alignment = { horizontal: 'center', vertical: 'middle' };
-      } else if (marca === 'desarrollo' || marca === 'trabajo') {
-        // Texto "DE" oculto (mismo color que el fondo verde) para permitir
-        // conteos con COUNTIF/COUNTIFS en Excel sin que se vea la letra.
-        cell.value = 'DE';
-        cell.font = { color: { argb: COLOR.desarrollo }, size: 8 };
-        cell.alignment = { horizontal: 'center', vertical: 'middle' };
-      } else if (marca === 'certificacion') {
-        // Texto "HU" oculto (mismo color que el fondo naranja), misma idea.
-        cell.value = 'HU';
-        cell.font = { color: { argb: COLOR.certificacion }, size: 8 };
-        cell.alignment = { horizontal: 'center', vertical: 'middle' };
-      }
-      if (marcaPlan) cell.note = `Planificado: ${marcaPlan}`;
+      // Fondo base (feriado / hoy / blanco); el color de la marca lo pone
+      // el formato condicional según el texto de la celda.
+      cell.fill = fillSolido(c.esFeriado ? COLOR.celdaFeriado : c.esHoy ? COLOR.hoyCelda : COLOR.blanco);
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      cell.font = { size: 8 };
+      if (marca) cell.value = TEXTO_MARCA[marca];
+      if (marcaPlan) cell.note = `Planificado: ${marcaPlan === 'cierre' ? 'hito (fecha comprometida)' : marcaPlan}`;
     });
 
     aplicarBordesDia(fila, (i) => {
@@ -299,19 +378,68 @@ export async function exportarGanttComoExcel(opciones: ExportarGanttOpciones): P
       return marcaPlan ? MARCA_COLOR[marcaPlan] : undefined;
     });
 
+    hoja.getRow(fila).height = 30;
     fila++;
   }
 
-  const buffer = await workbook.xlsx.writeBuffer();
-  const blob = new Blob([buffer], {
-    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  const ultimaFila = Math.max(fila - 1, 4);
+
+  // --- Reglas de coloración (formato condicional), como en el front ---
+  if (columnas.length > 0) {
+    // Marcas: "DE" verde y "HU" naranja con el texto del mismo color (no se
+    // ve la letra, pero sirve para contar); "H" azul con la letra blanca.
+    hoja.addConditionalFormatting({
+      ref: `${L_INI}4:${L_FIN}${ultimaFila}`,
+      rules: [
+        { type: 'cellIs', operator: 'equal', formulae: ['"DE"'], priority: 1, style: estiloCondicional(COLOR.desarrollo, COLOR.desarrollo) },
+        { type: 'cellIs', operator: 'equal', formulae: ['"HU"'], priority: 2, style: estiloCondicional(COLOR.certificacion, COLOR.certificacion) },
+        { type: 'cellIs', operator: 'equal', formulae: ['"H"'], priority: 3, style: estiloCondicional(COLOR.cierre, COLOR.blanco, true) },
+      ],
+    });
+  }
+
+  // Columna H: en el Real, relleno azul si la actividad cerró y solo la
+  // letra azul si tiene hitos pero sigue abierta (como en el front). En el
+  // Planificado (fecha comprometida) siempre relleno azul.
+  hoja.addConditionalFormatting({
+    ref: `B4:B${ultimaFila}`,
+    rules: esReal
+      ? [
+          { type: 'expression', formulae: ['AND($B4<>"",$G4="Sí")'], priority: 4, style: estiloCondicional(COLOR.cierre, COLOR.blanco, true) },
+          { type: 'expression', formulae: ['AND($B4<>"",$G4<>"Sí")'], priority: 5, style: estiloCondicional(COLOR.blanco, COLOR.cierre, true) },
+        ]
+      : [{ type: 'expression', formulae: ['$B4<>""'], priority: 4, style: estiloCondicional(COLOR.cierre, COLOR.blanco, true) }],
   });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `${nombreArchivo}.xlsx`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+
+  if (esReal) {
+    // Semáforo sobre el % de cumplimiento — mismas reglas que
+    // calcularSemaforo (lib/avanceCedula.ts):
+    //   sin días planificados -> negro
+    //   abierta: >100% rojo, >=80% amarillo, si no verde
+    //   cerrada: desvío |real/plan - 100%| <=5% verde, <=8% amarillo, si no rojo
+    const r = 'ROUND($E4/$D4,4)';
+    const abierta = '$G4<>"Sí"';
+    const cerrada = '$G4="Sí"';
+    hoja.addConditionalFormatting({
+      ref: `F4:F${ultimaFila}`,
+      rules: [
+        { type: 'expression', formulae: ['AND(ISNUMBER($D4),$D4=0)'], priority: 6, style: estiloCondicional(COLOR.semaforoNegro, COLOR.blanco, true) },
+        {
+          type: 'expression',
+          formulae: [`AND($D4>0,OR(AND(${abierta},${r}>1),AND(${cerrada},ABS(${r}-1)>0.08)))`],
+          priority: 7,
+          style: estiloCondicional(COLOR.semaforoRojo, COLOR.blanco, true),
+        },
+        {
+          type: 'expression',
+          formulae: [`AND($D4>0,OR(AND(${abierta},${r}>=0.8),AND(${cerrada},ABS(${r}-1)>0.05)))`],
+          priority: 8,
+          style: estiloCondicional(COLOR.semaforoAmarillo, COLOR.blanco, true),
+        },
+        { type: 'expression', formulae: ['$D4>0'], priority: 9, style: estiloCondicional(COLOR.semaforoVerde, COLOR.blanco, true) },
+      ],
+    });
+  }
+
+  await descargarWorkbook(workbook, nombreArchivo);
 }

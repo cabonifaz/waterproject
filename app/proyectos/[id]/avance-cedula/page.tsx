@@ -13,6 +13,7 @@ import Sidebar from '@/components/Sidebar';
 import Modal from '@/components/Modal';
 import { EstructuraProyecto, CorteAvance, DetalleCorteAvance, FilaAvanceCedula } from '@/types';
 import { construirFilasAvanceCedula, calcularFilasConPorcentajes, Semaforo } from '@/lib/avanceCedula';
+import { exportarAvanceCedulaComoExcel } from '@/lib/exportarAvanceCedulaExcel';
 
 interface Historico {
   hoy: string;
@@ -74,6 +75,7 @@ export default function AvanceCedulaPage() {
   const [sidebarAbierto, setSidebarAbierto] = useState(true);
   const [mostrarConfirmacion, setMostrarConfirmacion] = useState(false);
   const [guardando, setGuardando] = useState(false);
+  const [exportando, setExportando] = useState(false);
 
   const cargar = useCallback(async () => {
     try {
@@ -151,6 +153,34 @@ export default function AvanceCedulaPage() {
     );
   };
 
+  // Mismo cálculo que renderDelta, pero como número (puntos porcentuales)
+  // para el Excel.
+  const calcularDelta = (actual: number | null, referenciaClave?: string): number | null => {
+    if (!historico?.corteAnterior) return null;
+    const anterior = referenciaClave ? avanceRealAnteriorPorFila.get(referenciaClave) ?? 0 : totalAvanceRealAnterior;
+    if (actual == null || anterior == null) return null;
+    return Math.round((actual - anterior) * 10) / 10;
+  };
+
+  const handleExportarExcel = async () => {
+    if (!estructura || !historico) return;
+    setExportando(true);
+    try {
+      await exportarAvanceCedulaComoExcel({
+        nombreArchivo: `Avance-Celula-${estructura.proyecto.nombre}-${historico.hoy.slice(0, 10)}`.replace(/[^\w-]+/g, '_'),
+        titulo: `Avance Célula — ${estructura.proyecto.nombre} — corte ${formatFecha(historico.hoy)}`,
+        filas,
+        totalNombre: totales.nombre,
+        deltas: filas.map((f) => calcularDelta(f.porcentajeAvanceReal, claveFila(f.tipo, f.referenciaId))),
+        deltaTotal: calcularDelta(totales.porcentajeAvanceReal),
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo exportar el Excel');
+    } finally {
+      setExportando(false);
+    }
+  };
+
   const sinBaseline = estructura && !estructura.proyecto.baseline_capturado;
 
   return (
@@ -174,6 +204,15 @@ export default function AvanceCedulaPage() {
               </div>
             </div>
             <div className="flex items-center gap-3">
+              {estructura && !sinBaseline && historico && (
+                <button
+                  onClick={handleExportarExcel}
+                  disabled={exportando}
+                  className="px-4 py-2 rounded-lg text-sm font-semibold bg-white border-2 border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  {exportando ? '⏳ Exportando...' : '📊 Exportar Excel'}
+                </button>
+              )}
               <a
                 href={`/proyectos/${proyectoId}/gantt-real`}
                 className="px-4 py-2 rounded-lg text-sm font-semibold bg-white border-2 border-slate-300 text-slate-700 hover:bg-slate-50"

@@ -455,10 +455,11 @@ export default function GanttPage() {
               kind: 'fila',
               tipo: item.fila.tipo,
               id: item.fila.id,
-              etiqueta: item.fila.etiqueta + (item.fila.diasPropios != null ? sufijo(item.fila.diasPropios) : ''),
+              etiqueta: item.fila.etiqueta, // los días van en su propia columna (fórmula)
               contexto: item.fila.contexto,
               fechaCierre: (hitosPorFila.get(`${item.fila.tipo}-${item.fila.id}`) ?? []).slice(-1)[0],
               miembros: item.fila.miembros.map((m) => m.iniciales).join('/'),
+              esActividadCierre: item.fila.esActividadCierre,
             }
       );
 

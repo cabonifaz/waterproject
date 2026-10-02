@@ -82,7 +82,8 @@ function parsearHoja(hoja: ExcelJS.Worksheet, errores: string[]): FilaExcel[] {
 
     const marcas = new Map<string, string>();
     for (const [col, fecha] of fechaPorColumna) {
-      const valor = String(hoja.getCell(filaExcel, col).value ?? '').trim();
+      // Mayúsculas: en Excel la regla de color no distingue "de" de "DE".
+      const valor = String(hoja.getCell(filaExcel, col).value ?? '').trim().toUpperCase();
       if (!valor) continue;
       const tipoMarca = tipoMarcaDesdeTexto(valor, tipo);
       if (!tipoMarca) {
