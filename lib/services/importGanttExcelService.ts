@@ -4,10 +4,11 @@
 // exportar, editar el archivo con Excel, y volver a subirlo para
 // sincronizar la base de datos con lo que quedó marcado.
 //
-// Cada fila se identifica por una nota oculta "tipo:id" en la columna
-// "Actividad", y cada columna de día por una nota oculta con la fecha ISO
-// en el encabezado — así no depende de parsear texto visible ni de que
-// las filas/columnas no se hayan reordenado.
+// Cada fila se identifica por su "tipo:id" y cada columna de día por su
+// fecha ISO, guardados en una columna y una fila ocultas (formato actual)
+// o en notas de celda (archivos exportados antes) — así no depende de
+// parsear texto visible ni de que las filas/columnas no se hayan
+// reordenado. Ver parsearHoja y lib/formatoExcelGantt.ts.
 //
 // Solo se aplican los cambios (diff entre lo que ya hay en la BD y lo que
 // trae el Excel), reusando el toggle de sp_marcar_dia_*: una celda que ya
@@ -18,6 +19,7 @@ import * as estructuraService from './estructuraService';
 import * as diasPlanificadosService from './diasPlanificadosService';
 import * as diasRealesService from './diasRealesService';
 import { DiaPlanificadoHU, DiaPlanificadoTareaMatriz, TipoMarcaHU, TipoMarcaTareaMatriz } from '@/types';
+import { MARCA_COLUMNA_ID, MARCA_FILA_FECHAS } from '../formatoExcelGantt';
 
 export type ModoImportacionGantt = 'planificado' | 'real';
 
@@ -67,10 +69,36 @@ function textoNota(nota: ExcelJS.Cell['note']): string {
   return (nota.texts ?? []).map((t) => t.text ?? '').join('');
 }
 
+// Fecha ISO de una celda de la fila oculta de fechas: normalmente es texto,
+// pero si alguien la tocó en Excel puede haber quedado como fecha real.
+function fechaDeCelda(celda: ExcelJS.Cell): string | undefined {
+  if (celda.value instanceof Date) return celda.value.toISOString().slice(0, 10);
+  return /\b(\d{4}-\d{2}-\d{2})\b/.exec(celda.text ?? '')?.[1];
+}
+
+// Dos formatos de archivo exportado:
+//   - Actual: fila oculta "__fechas" con la fecha de cada columna-día y
+//     columna oculta "__id" con el tipo:id de cada actividad (sin notas,
+//     para que no aparezca el triangulito rojo en las celdas).
+//   - Anterior: la fecha en una nota del encabezado de cada día (fila 3) y
+//     el tipo:id en una nota de la columna Actividad.
 function parsearHoja(hoja: ExcelJS.Worksheet, errores: string[]): FilaExcel[] {
   const fechaPorColumna = new Map<number, string>();
+
+  let filaFechas: number | null = null;
+  for (let r = 1; r <= Math.min(10, hoja.rowCount); r++) {
+    if ((hoja.getCell(r, COL_ACTIVIDAD).text ?? '').trim() === MARCA_FILA_FECHAS) filaFechas = r;
+  }
+  let colId: number | null = null;
+  for (let col = 1; col <= hoja.columnCount; col++) {
+    if ((hoja.getCell(1, col).text ?? '').trim() === MARCA_COLUMNA_ID) colId = col;
+  }
+  const formatoActual = filaFechas != null && colId != null;
+
   for (let col = COL_INICIO_DIAS; col <= hoja.columnCount; col++) {
-    const fecha = /\b(\d{4}-\d{2}-\d{2})\b/.exec(textoNota(hoja.getCell(FILA_ENCABEZADO_DIAS, col).note))?.[1];
+    const fecha = formatoActual
+      ? fechaDeCelda(hoja.getCell(filaFechas!, col))
+      : /\b(\d{4}-\d{2}-\d{2})\b/.exec(textoNota(hoja.getCell(FILA_ENCABEZADO_DIAS, col).note))?.[1];
     if (fecha) fechaPorColumna.set(col, fecha);
   }
 
@@ -79,10 +107,14 @@ function parsearHoja(hoja: ExcelJS.Worksheet, errores: string[]): FilaExcel[] {
     return [];
   }
 
+  const filaInicio = formatoActual ? filaFechas! + 1 : FILA_INICIO_DATOS;
   const filas: FilaExcel[] = [];
-  for (let filaExcel = FILA_INICIO_DATOS; filaExcel <= hoja.rowCount; filaExcel++) {
-    // Sin nota "tipo:id" = fila divisora (etapa/módulo/épica) u otra fila sin identidad.
-    const match = /\b(hu|tareaMatriz):(\d+)\b/.exec(textoNota(hoja.getCell(filaExcel, COL_ACTIVIDAD).note));
+  for (let filaExcel = filaInicio; filaExcel <= hoja.rowCount; filaExcel++) {
+    // Sin "tipo:id" = fila divisora (etapa/módulo/épica) u otra fila sin identidad.
+    const identidad = formatoActual
+      ? hoja.getCell(filaExcel, colId!).text ?? ''
+      : textoNota(hoja.getCell(filaExcel, COL_ACTIVIDAD).note);
+    const match = /\b(hu|tareaMatriz):(\d+)\b/.exec(identidad);
     if (!match) continue;
     const tipo = match[1] as TipoFila;
     const id = Number(match[2]);

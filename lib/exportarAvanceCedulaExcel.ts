@@ -41,10 +41,11 @@ const ENCABEZADOS = [
   'tipo',
 ];
 
-const ETAPA_FONDO = 'FF1E3A8A';
-const EPICA_FONDO = 'FFEFF6FF';
-const TAREA_FONDO = 'FFFFFBEB';
-const TOTAL_DESTACADO = 'FF15803D';
+// Misma paleta que los Gantt (homologada con el cronograma de referencia).
+const ETAPA_FONDO = COLOR.etapaFondo;
+const EPICA_FONDO = COLOR.epicaFondo;
+const TAREA_FONDO = COLOR.tareaFondo;
+const TOTAL_DESTACADO = COLOR.desarrollo;
 
 export async function exportarAvanceCedulaComoExcel(opciones: ExportarAvanceCedulaOpciones): Promise<void> {
   const ExcelJS = (await import('exceljs')).default;
@@ -73,7 +74,7 @@ export async function exportarAvanceCedulaComoExcel(opciones: ExportarAvanceCedu
   ENCABEZADOS.forEach((t, i) => {
     const c = hoja.getCell(FILA_ENC, i + 1);
     c.value = t;
-    c.fill = fillSolido(COLOR.etapaFondo);
+    c.fill = fillSolido(COLOR.encabezadoFondo);
     c.font = { bold: true, color: { argb: COLOR.blanco }, size: 9 };
     c.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
     c.border = bordeFino();
@@ -118,7 +119,7 @@ export async function exportarAvanceCedulaComoExcel(opciones: ExportarAvanceCedu
   filas.forEach((f, i) => {
     const r = FILA_INI + i;
     const fondo = f.esEncabezadoEtapa ? ETAPA_FONDO : f.tipo === 'epica' ? EPICA_FONDO : TAREA_FONDO;
-    const colorTexto = f.esEncabezadoEtapa ? COLOR.blanco : 'FF1F2937';
+    const colorTexto = f.esEncabezadoEtapa ? COLOR.etapaTexto : COLOR.actividadTexto;
 
     hoja.getCell(r, 1).value = i + 1;
     hoja.getCell(r, 2).value = f.nombre;
@@ -177,7 +178,7 @@ export async function exportarAvanceCedulaComoExcel(opciones: ExportarAvanceCedu
   for (let col = 1; col <= 15; col++) {
     const c = hoja.getCell(T, col);
     const destacado = col === 9 || col === 11 || col === 12;
-    c.fill = fillSolido(col === 13 ? COLOR.blanco : destacado ? TOTAL_DESTACADO : COLOR.etapaFondo);
+    c.fill = fillSolido(col === 13 ? COLOR.blanco : destacado ? TOTAL_DESTACADO : COLOR.encabezadoFondo);
     c.font = { bold: true, size: 10, color: { argb: col === 13 ? 'FF1F2937' : COLOR.blanco } };
     c.alignment = { horizontal: col <= 2 ? 'left' : 'center', vertical: 'middle' };
     c.border = bordeFino();
