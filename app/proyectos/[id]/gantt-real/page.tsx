@@ -99,7 +99,9 @@ function formatISO(fecha: Date): string {
 }
 
 function etiquetaGrupo(sprint: Sprint): string {
-  return sprint.tipo === 'priorizacion' ? 'Priorización' : `Sprint ${sprint.numero}`;
+  // Períodos de priorización (al inicio y, opcionalmente, al final del PI):
+  // "Zona Gris", como en el cronograma de referencia del usuario.
+  return sprint.tipo === 'priorizacion' ? 'Zona Gris' : `Sprint ${sprint.numero}`;
 }
 
 function calcularColumnas(sprints: Sprint[], feriados: Set<string>): Columna[] {
