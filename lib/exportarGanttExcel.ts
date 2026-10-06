@@ -19,7 +19,7 @@
 'use client';
 
 import type { Worksheet, Workbook } from 'exceljs';
-import { MARCA_COLUMNA_ID, MARCA_FILA_FECHAS } from './formatoExcelGantt';
+import { MARCA_COLUMNA_ID } from './formatoExcelGantt';
 
 export interface ColumnaExcel {
   fecha: string;
@@ -208,16 +208,16 @@ export async function exportarGanttComoExcel(opciones: ExportarGanttOpciones): P
   const COL_INICIO_DIAS = FIJAS.length + 1;
   const COL_FIN_DIAS = COL_INICIO_DIAS + Math.max(columnas.length, 1) - 1;
   // Identidad para reimportar SIN notas (las notas muestran el triangulito
-  // rojo en cada celda, que el cronograma de referencia no tiene): una
-  // fila oculta con la fecha ISO de cada columna-día y una columna oculta
-  // al final con el "tipo:id" de cada actividad. Ver MARCA_FILA_FECHAS /
-  // MARCA_COLUMNA_ID en importGanttExcelService.
-  const FILA_FECHAS = 4;
-  const FILA_DATOS = 5;
+  // rojo en cada celda, que el cronograma de referencia no tiene) y sin
+  // agregar filas: el encabezado de cada día guarda la fecha real con un
+  // formato que la muestra como siempre ("L31"), y una columna oculta al
+  // final lleva el "tipo:id" de cada actividad. Ver parsearHoja en
+  // importGanttExcelService.
+  const FILA_DATOS = 4;
   const COL_ID = COL_FIN_DIAS + 1;
 
   const hoja: Worksheet = workbook.addWorksheet(nombreHoja, {
-    views: [{ state: 'frozen', xSplit: FIJAS.length, ySplit: FILA_FECHAS }],
+    views: [{ state: 'frozen', xSplit: FIJAS.length, ySplit: 3 }],
   });
   const letra = (col: number) => hoja.getColumn(col).letter;
   const L_INI = letra(COL_INICIO_DIAS);
@@ -292,7 +292,11 @@ export async function exportarGanttComoExcel(opciones: ExportarGanttOpciones): P
 
   columnas.forEach((c, i) => {
     const cell = hoja.getCell(3, COL_INICIO_DIAS + i);
-    cell.value = `${c.diaSemana}${String(c.diaMes).padStart(2, '0')}`; // hoy: misma fecha, en amarillo
+    // Fecha real (para reimportar) mostrada como siempre: "L31", "M01"...
+    // La inicial del día va como texto literal del formato y "dd" es el
+    // día del mes. Hoy: misma fecha, en amarillo.
+    cell.value = new Date(`${c.fecha}T00:00:00Z`);
+    cell.numFmt = `"${c.diaSemana}"dd`;
     cell.fill = fillSolido(c.esHoy ? COLOR.hoyFondo : c.esFeriado ? COLOR.feriadoFondo : COLOR.diaFondo);
     cell.font = {
       bold: true,
@@ -300,13 +304,8 @@ export async function exportarGanttComoExcel(opciones: ExportarGanttOpciones): P
       color: { argb: c.esHoy ? COLOR.hoyTexto : c.esFeriado ? COLOR.feriadoTexto : COLOR.diaTexto },
     };
     cell.alignment = { horizontal: 'center', vertical: 'middle' };
-    // Fecha ISO exacta en la fila oculta — para reimportar sin depender del
-    // texto visible (que solo trae día de semana + día del mes).
-    hoja.getCell(FILA_FECHAS, COL_INICIO_DIAS + i).value = c.fecha;
   });
   aplicarBordesDia(3);
-  hoja.getCell(FILA_FECHAS, 1).value = MARCA_FILA_FECHAS;
-  hoja.getRow(FILA_FECHAS).hidden = true;
   hoja.getCell(1, COL_ID).value = MARCA_COLUMNA_ID;
   hoja.getColumn(COL_ID).hidden = true;
 

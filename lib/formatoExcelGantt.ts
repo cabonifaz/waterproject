@@ -5,8 +5,9 @@
 // cada actividad, sin usar notas de celda (que muestran un triangulito
 // rojo en cada celda).
 
-// Valor de la celda A de la fila oculta que trae la fecha ISO (yyyy-mm-dd)
-// de cada columna-día.
+// Valor de la celda A de la fila oculta con la fecha ISO (yyyy-mm-dd) de
+// cada columna-día. Ya no se exporta (la fecha va en el encabezado del día),
+// pero el importador la sigue aceptando en archivos generados con ese formato.
 export const MARCA_FILA_FECHAS = '__fechas';
 
 // Valor de la fila 1 de la columna oculta (al final) que trae el

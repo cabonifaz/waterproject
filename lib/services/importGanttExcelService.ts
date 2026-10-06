@@ -76,12 +76,13 @@ function fechaDeCelda(celda: ExcelJS.Cell): string | undefined {
   return /\b(\d{4}-\d{2}-\d{2})\b/.exec(celda.text ?? '')?.[1];
 }
 
-// Dos formatos de archivo exportado:
-//   - Actual: fila oculta "__fechas" con la fecha de cada columna-día y
-//     columna oculta "__id" con el tipo:id de cada actividad (sin notas,
-//     para que no aparezca el triangulito rojo en las celdas).
-//   - Anterior: la fecha en una nota del encabezado de cada día (fila 3) y
-//     el tipo:id en una nota de la columna Actividad.
+// Formatos de archivo exportado que se aceptan:
+//   - Actual: el encabezado de cada día (fila 3) guarda la fecha real
+//     (se ve como "L31" por el formato de número) y una columna oculta
+//     "__id" trae el tipo:id de cada actividad. Sin notas ni filas extra.
+//   - Intermedio (solo unos días): fila oculta "__fechas" con las fechas.
+//   - Anterior: la fecha en una nota del encabezado de cada día y el
+//     tipo:id en una nota de la columna Actividad.
 function parsearHoja(hoja: ExcelJS.Worksheet, errores: string[]): FilaExcel[] {
   const fechaPorColumna = new Map<number, string>();
 
@@ -93,12 +94,15 @@ function parsearHoja(hoja: ExcelJS.Worksheet, errores: string[]): FilaExcel[] {
   for (let col = 1; col <= hoja.columnCount; col++) {
     if ((hoja.getCell(1, col).text ?? '').trim() === MARCA_COLUMNA_ID) colId = col;
   }
-  const formatoActual = filaFechas != null && colId != null;
 
   for (let col = COL_INICIO_DIAS; col <= hoja.columnCount; col++) {
-    const fecha = formatoActual
-      ? fechaDeCelda(hoja.getCell(filaFechas!, col))
-      : /\b(\d{4}-\d{2}-\d{2})\b/.exec(textoNota(hoja.getCell(FILA_ENCABEZADO_DIAS, col).note))?.[1];
+    const encabezado = hoja.getCell(FILA_ENCABEZADO_DIAS, col);
+    const fecha =
+      encabezado.value instanceof Date
+        ? fechaDeCelda(encabezado)
+        : filaFechas != null
+        ? fechaDeCelda(hoja.getCell(filaFechas, col))
+        : /\b(\d{4}-\d{2}-\d{2})\b/.exec(textoNota(encabezado.note))?.[1];
     if (fecha) fechaPorColumna.set(col, fecha);
   }
 
@@ -107,13 +111,12 @@ function parsearHoja(hoja: ExcelJS.Worksheet, errores: string[]): FilaExcel[] {
     return [];
   }
 
-  const filaInicio = formatoActual ? filaFechas! + 1 : FILA_INICIO_DATOS;
+  const filaInicio = filaFechas != null ? filaFechas + 1 : FILA_INICIO_DATOS;
   const filas: FilaExcel[] = [];
   for (let filaExcel = filaInicio; filaExcel <= hoja.rowCount; filaExcel++) {
     // Sin "tipo:id" = fila divisora (etapa/módulo/épica) u otra fila sin identidad.
-    const identidad = formatoActual
-      ? hoja.getCell(filaExcel, colId!).text ?? ''
-      : textoNota(hoja.getCell(filaExcel, COL_ACTIVIDAD).note);
+    const identidad =
+      colId != null ? hoja.getCell(filaExcel, colId).text ?? '' : textoNota(hoja.getCell(filaExcel, COL_ACTIVIDAD).note);
     const match = /\b(hu|tareaMatriz):(\d+)\b/.exec(identidad);
     if (!match) continue;
     const tipo = match[1] as TipoFila;
