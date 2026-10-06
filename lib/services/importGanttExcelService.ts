@@ -56,12 +56,22 @@ function tipoMarcaDesdeTexto(valor: string, tipoFila: TipoFila): string | null {
   return null;
 }
 
+// Texto plano de una nota de celda. Al exportar se escriben como string,
+// pero apenas el archivo se guarda en Excel las notas vuelven como texto
+// enriquecido ({ texts: [{ text }] }) — y si alguien la editó, Excel puede
+// anteponer el nombre del autor. Por eso se une todo el texto y después se
+// busca el patrón (fecha o tipo:id) en cualquier parte, no solo exacto.
+function textoNota(nota: ExcelJS.Cell['note']): string {
+  if (!nota) return '';
+  if (typeof nota === 'string') return nota;
+  return (nota.texts ?? []).map((t) => t.text ?? '').join('');
+}
+
 function parsearHoja(hoja: ExcelJS.Worksheet, errores: string[]): FilaExcel[] {
   const fechaPorColumna = new Map<number, string>();
   for (let col = COL_INICIO_DIAS; col <= hoja.columnCount; col++) {
-    const nota = hoja.getCell(FILA_ENCABEZADO_DIAS, col).note;
-    const fecha = typeof nota === 'string' ? nota.trim() : null;
-    if (fecha && /^\d{4}-\d{2}-\d{2}$/.test(fecha)) fechaPorColumna.set(col, fecha);
+    const fecha = /\b(\d{4}-\d{2}-\d{2})\b/.exec(textoNota(hoja.getCell(FILA_ENCABEZADO_DIAS, col).note))?.[1];
+    if (fecha) fechaPorColumna.set(col, fecha);
   }
 
   if (fechaPorColumna.size === 0) {
@@ -71,11 +81,8 @@ function parsearHoja(hoja: ExcelJS.Worksheet, errores: string[]): FilaExcel[] {
 
   const filas: FilaExcel[] = [];
   for (let filaExcel = FILA_INICIO_DATOS; filaExcel <= hoja.rowCount; filaExcel++) {
-    const nota = hoja.getCell(filaExcel, COL_ACTIVIDAD).note;
-    const ref = typeof nota === 'string' ? nota.trim() : null;
-    if (!ref) continue; // fila divisora (etapa/módulo/épica) u otra fila sin identidad
-
-    const match = /^(hu|tareaMatriz):(\d+)$/.exec(ref);
+    // Sin nota "tipo:id" = fila divisora (etapa/módulo/épica) u otra fila sin identidad.
+    const match = /\b(hu|tareaMatriz):(\d+)\b/.exec(textoNota(hoja.getCell(filaExcel, COL_ACTIVIDAD).note));
     if (!match) continue;
     const tipo = match[1] as TipoFila;
     const id = Number(match[2]);
@@ -83,7 +90,7 @@ function parsearHoja(hoja: ExcelJS.Worksheet, errores: string[]): FilaExcel[] {
     const marcas = new Map<string, string>();
     for (const [col, fecha] of fechaPorColumna) {
       // Mayúsculas: en Excel la regla de color no distingue "de" de "DE".
-      const valor = String(hoja.getCell(filaExcel, col).value ?? '').trim().toUpperCase();
+      const valor = (hoja.getCell(filaExcel, col).text ?? '').trim().toUpperCase(); // .text: también resuelve texto enriquecido
       if (!valor) continue;
       const tipoMarca = tipoMarcaDesdeTexto(valor, tipo);
       if (!tipoMarca) {
