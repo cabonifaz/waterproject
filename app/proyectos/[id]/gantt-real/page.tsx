@@ -17,7 +17,7 @@ import Modal from '@/components/Modal';
 import FormularioImportarGanttExcel from '@/components/FormularioImportarGanttExcel';
 import ObservacionesModal from '@/components/ObservacionesModal';
 import { EstructuraProyecto, Sprint, Feriado, Miembro, ObservacionInventario } from '@/types';
-import { calcularTotalesDias, calcularPorcentaje } from '@/lib/planificacion';
+import { calcularTotalesDias, calcularPorcentaje, totalDias, TOTALES_VACIOS } from '@/lib/planificacion';
 import { porcentaje as porcentajeCumplim, calcularSemaforo, topePorcentaje, Semaforo } from '@/lib/avanceCedula';
 import { exportarGanttComoExcel, ItemExcel } from '@/lib/exportarGanttExcel';
 
@@ -170,7 +170,7 @@ function claveMarca(tipo: string, id: number, fecha: string): string {
 }
 
 interface IndiceMarcas {
-  conteos: Map<string, number>; // "tipo-id" -> días marcados (sin contar hitos)
+  conteos: Map<string, number>; // "tipo-id" -> días marcados (incluye los días de hito)
   hitos: Map<string, string[]>; // "tipo-id" -> fechas de hito, ordenadas
   cierres: Map<string, string>; // "tipo-id" -> fecha de cierre efectiva, si la actividad cerró
 }
@@ -187,10 +187,11 @@ function indexarMarcasPorFila(marcas: Map<string, string>): IndiceMarcas {
   for (const [key, valor] of marcas) {
     const filaKey = key.slice(0, key.length - 11); // quita "-yyyy-mm-dd" (11 chars)
     const fecha = key.slice(key.length - 10);
+    // El día del hito también cuenta como día de la actividad.
+    conteos.set(filaKey, (conteos.get(filaKey) ?? 0) + 1);
     if (valor === 'cierre') {
       hitos.set(filaKey, [...(hitos.get(filaKey) ?? []), fecha]);
     } else {
-      conteos.set(filaKey, (conteos.get(filaKey) ?? 0) + 1);
       const previo = ultimoTrabajo.get(filaKey);
       if (previo == null || fecha > previo) ultimoTrabajo.set(filaKey, fecha);
     }
@@ -502,18 +503,20 @@ export default function GanttRealPage() {
   const totalesReal = useMemo(() => {
     let desarrollo = 0;
     let certificacion = 0;
+    let hitos = 0;
     for (const valor of marcas.values()) {
       if (valor === 'desarrollo' || valor === 'trabajo') desarrollo++;
       else if (valor === 'certificacion') certificacion++;
+      else if (valor === 'cierre') hitos++;
     }
-    return { desarrollo, certificacion };
+    return { desarrollo, certificacion, hitos };
   }, [marcas]);
   const totalesPlan = useMemo(
-    () => (estructura ? calcularTotalesDias(estructura, 'diasPlanificados') : { desarrollo: 0, certificacion: 0 }),
+    () => (estructura ? calcularTotalesDias(estructura, 'diasPlanificados') : TOTALES_VACIOS),
     [estructura]
   );
-  const totalGeneralReal = totalesReal.desarrollo + totalesReal.certificacion;
-  const totalGeneralPlan = totalesPlan.desarrollo + totalesPlan.certificacion;
+  const totalGeneralReal = totalDias(totalesReal);
+  const totalGeneralPlan = totalDias(totalesPlan);
   const puedeEditar = estructura?.proyecto.estado_planificacion === 'cerrado';
 
   const gruposSprint = useMemo(() => {
@@ -787,12 +790,16 @@ export default function GanttRealPage() {
                   <span className="w-3 h-3 rounded bg-orange-400 inline-block" /> Certificación:{' '}
                   <strong className="text-gray-900">{totalesReal.certificacion}</strong>
                 </span>
+                <span className="flex items-center gap-1.5 text-gray-600">
+                  <span className="w-3 h-3 rounded bg-blue-600 inline-block" /> Hitos:{' '}
+                  <strong className="text-gray-900">{totalesReal.hitos}</strong>
+                </span>
                 <span className="text-gray-600">
                   Total: <strong className="text-gray-900">{totalGeneralReal}</strong> día(s)
                 </span>
                 <span className="text-gray-400">|</span>
                 <span className="text-gray-500">
-                  📊 Planificado: {totalesPlan.desarrollo} + {totalesPlan.certificacion} ={' '}
+                  📊 Planificado: {totalesPlan.desarrollo} + {totalesPlan.certificacion} + {totalesPlan.hitos} ={' '}
                   <strong>{totalGeneralPlan}</strong> día(s)
                 </span>
               </div>

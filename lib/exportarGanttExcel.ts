@@ -248,11 +248,13 @@ export async function exportarGanttComoExcel(opciones: ExportarGanttOpciones): P
     });
   };
 
-  hoja.getColumn(1).width = 46;
-  hoja.getColumn(2).width = 6;
-  hoja.getColumn(3).width = 14;
-  for (let col = 4; col < COL_INICIO_DIAS; col++) hoja.getColumn(col).width = 9;
-  for (let i = 0; i < columnas.length; i++) hoja.getColumn(COL_INICIO_DIAS + i).width = 5;
+  // Dimensiones como el cronograma de referencia: la actividad entra en
+  // una sola línea (columna ancha, sin ajuste de texto) y filas bajas.
+  hoja.getColumn(1).width = 85;
+  hoja.getColumn(2).width = 4;
+  hoja.getColumn(3).width = 9;
+  for (let col = 4; col < COL_INICIO_DIAS; col++) hoja.getColumn(col).width = esReal ? 8 : 5;
+  for (let i = 0; i < columnas.length; i++) hoja.getColumn(COL_INICIO_DIAS + i).width = 4.6;
 
   // --- Encabezados (3 filas: meses, sprints, días) ---
   FIJAS.forEach((titulo, k) => {
@@ -336,7 +338,7 @@ export async function exportarGanttComoExcel(opciones: ExportarGanttOpciones): P
       });
       aplicarBordesDia(fila);
 
-      hoja.getRow(fila).height = 18;
+      hoja.getRow(fila).height = 15;
       fila++;
       continue;
     }
@@ -353,7 +355,7 @@ export async function exportarGanttComoExcel(opciones: ExportarGanttOpciones): P
 
     const celdaAct = hoja.getCell(fila, 1);
     celdaAct.value = f.etiqueta;
-    celdaAct.alignment = { indent: 2, vertical: 'middle', wrapText: true };
+    celdaAct.alignment = { indent: 2, vertical: 'middle', wrapText: false };
     celdaAct.font = f.esActividadCierre
       ? { size: 9, bold: true, color: { argb: COLOR.etapaTexto } }
       : { size: 9, color: { argb: COLOR.actividadTexto } };
@@ -373,7 +375,9 @@ export async function exportarGanttComoExcel(opciones: ExportarGanttOpciones): P
     hoja.getCell(fila, 3).font = { size: 8 };
     hoja.getCell(fila, 3).alignment = { horizontal: 'center', vertical: 'middle' };
 
-    const conteoDias = `COUNTIF(${rango},"DE")+COUNTIF(${rango},"HU")`;
+    // Días de la actividad: desarrollo/trabajo + certificación + el día del
+    // hito (H), igual que en la app (lib/planificacion.ts).
+    const conteoDias = `COUNTIF(${rango},"DE")+COUNTIF(${rango},"HU")+COUNTIF(${rango},"H")`;
     if (esReal) {
       hoja.getCell(fila, 4).value = f.diasPlanificados ?? 0;
       hoja.getCell(fila, 5).value = { formula: conteoDias };
@@ -417,7 +421,7 @@ export async function exportarGanttComoExcel(opciones: ExportarGanttOpciones): P
       return marcaPlan ? MARCA_COLOR[marcaPlan] : undefined;
     });
 
-    hoja.getRow(fila).height = 30;
+    hoja.getRow(fila).height = 15;
     fila++;
   }
 

@@ -1658,7 +1658,8 @@ DELIMITER ;
 
 -- Resumen liviano para la lista de proyectos: días planificados y reales
 -- de TODOS los proyectos en una sola pasada (evita N+1 al listar). No usa
--- el baseline — el % Cumplimiento (real/planificado) no lo necesita.
+-- el baseline — el % Cumplimiento (real/planificado) no lo necesita. Los
+-- días incluyen el día del hito (H), igual que lib/planificacion.ts.
 -- total_actividades/actividades_cerradas: para poder calcular el semáforo
 -- distinguiendo "todavía en curso" de "ya cerrado" (ver calcularSemaforo
 -- en lib/avanceCedula.ts) — sin esto, una actividad que ya se pasó de
@@ -1681,7 +1682,6 @@ BEGIN
     JOIN epicas e ON h.epica_id = e.id
     JOIN modulos m ON e.modulo_id = m.id
     JOIN etapas et ON m.etapa_id = et.id
-    WHERE d.tipo_marca <> 'cierre'
     GROUP BY et.proyecto_id
   ) planif_hu ON planif_hu.proyecto_id = p.id
   LEFT JOIN (
@@ -1689,7 +1689,6 @@ BEGIN
     FROM tarea_matriz_dias_planificados d
     JOIN tareas_matrices t ON d.tarea_matriz_id = t.id
     JOIN etapas et ON t.etapa_id = et.id
-    WHERE d.tipo_marca <> 'cierre'
     GROUP BY et.proyecto_id
   ) planif_tm ON planif_tm.proyecto_id = p.id
   LEFT JOIN (
@@ -1699,7 +1698,6 @@ BEGIN
     JOIN epicas e ON h.epica_id = e.id
     JOIN modulos m ON e.modulo_id = m.id
     JOIN etapas et ON m.etapa_id = et.id
-    WHERE d.tipo_marca <> 'cierre'
     GROUP BY et.proyecto_id
   ) real_hu ON real_hu.proyecto_id = p.id
   LEFT JOIN (
@@ -1707,7 +1705,6 @@ BEGIN
     FROM tarea_matriz_dias_reales d
     JOIN tareas_matrices t ON d.tarea_matriz_id = t.id
     JOIN etapas et ON t.etapa_id = et.id
-    WHERE d.tipo_marca <> 'cierre'
     GROUP BY et.proyecto_id
   ) real_tm ON real_tm.proyecto_id = p.id
   LEFT JOIN (

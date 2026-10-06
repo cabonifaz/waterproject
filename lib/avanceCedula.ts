@@ -47,7 +47,7 @@ export interface FilaAvanceCalculada extends FilaAvanceCedula {
 }
 
 function diasBaseline(dias: { tipo_marca: string }[]): number {
-  return dias.filter((d) => d.tipo_marca !== 'cierre').length;
+  return dias.length; // el día del hito (H) también cuenta (ver lib/planificacion.ts)
 }
 
 // Cerrada = su último día real marcado es un hito (las tareas matrices

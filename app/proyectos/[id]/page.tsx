@@ -14,7 +14,7 @@ import MiembrosSeccion from '@/components/MiembrosSeccion';
 import ActividadesCierreModal from '@/components/ActividadesCierreModal';
 import { ProveedorSeleccion, BarraAsignacionGrupo } from '@/components/SeleccionActividades';
 import { EstructuraProyecto } from '@/types';
-import { calcularTotalesPlanificados } from '@/lib/planificacion';
+import { calcularTotalesPlanificados, totalDias } from '@/lib/planificacion';
 
 export default function ProyectoEstructuraPage() {
   const params = useParams();
@@ -49,8 +49,7 @@ export default function ProyectoEstructuraPage() {
 
   const totalGeneral = useMemo(() => {
     if (!estructura) return 0;
-    const totales = calcularTotalesPlanificados(estructura);
-    return totales.desarrollo + totales.certificacion;
+    return totalDias(calcularTotalesPlanificados(estructura));
   }, [estructura]);
 
   return (

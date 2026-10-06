@@ -19,7 +19,14 @@ import FormularioImportarGanttExcel from '@/components/FormularioImportarGanttEx
 import FormularioImportarPlanExterno from '@/components/FormularioImportarPlanExterno';
 import EditarSprintsModal from '@/components/EditarSprintsModal';
 import { EstructuraProyecto, Sprint, Feriado, Miembro } from '@/types';
-import { calcularTotalesPlanificados, calcularPorcentaje, diasPlanificadosEpica } from '@/lib/planificacion';
+import {
+  calcularTotalesPlanificados,
+  calcularPorcentaje,
+  diasPlanificadosEpica,
+  contarDias,
+  totalDias,
+  TOTALES_VACIOS,
+} from '@/lib/planificacion';
 import { formatFechaCorta } from '@/lib/hitos';
 import { exportarGanttComoExcel, ItemExcel } from '@/lib/exportarGanttExcel';
 
@@ -127,7 +134,7 @@ function calcularColumnas(sprints: Sprint[], feriados: Set<string>): Columna[] {
 // Intercala filas-divisor (etapa/módulo/épica) para que se vea la
 // jerarquía en el Gantt: una barra completa que corta todos los días de
 // todos los sprints, con el nombre en la columna de Actividad. Cada épica
-// lleva su total de días planificados (desarrollo + certificación de sus
+// lleva su total de días planificados (desarrollo + certificación + hitos de sus
 // HU) y cada tarea matriz el conteo de días de "trabajo" — ambos usados
 // después para el "(N días · %)" junto al nombre.
 function construirItemsRender(estructura: EstructuraProyecto): ItemRender[] {
@@ -145,7 +152,7 @@ function construirItemsRender(estructura: EstructuraProyecto): ItemRender[] {
           contexto: etapa.nombre,
           marcasPermitidas: ['trabajo', 'cierre'],
           miembros: t.miembros,
-          diasPropios: t.diasPlanificados.filter((d) => d.tipo_marca === 'trabajo').length,
+          diasPropios: contarDias(t.diasPlanificados), // incluye los días de hito
         },
       });
     }
@@ -310,10 +317,10 @@ export default function GanttPage() {
     return mapa;
   }, [marcas]);
   const totales = useMemo(
-    () => (estructura ? calcularTotalesPlanificados(estructura) : { desarrollo: 0, certificacion: 0 }),
+    () => (estructura ? calcularTotalesPlanificados(estructura) : TOTALES_VACIOS),
     [estructura]
   );
-  const totalGeneral = totales.desarrollo + totales.certificacion;
+  const totalGeneral = totalDias(totales);
   const planificadoAbierto = estructura?.proyecto.estado_planificacion !== 'cerrado';
 
   const gruposSprint = useMemo(() => {
@@ -607,6 +614,10 @@ export default function GanttPage() {
                 <span className="flex items-center gap-1.5 text-gray-600">
                   <span className="w-3 h-3 rounded bg-orange-400 inline-block" /> Certificación:{' '}
                   <strong className="text-gray-900">{totales.certificacion}</strong>
+                </span>
+                <span className="flex items-center gap-1.5 text-gray-600">
+                  <span className="w-3 h-3 rounded bg-blue-600 inline-block" /> Hitos:{' '}
+                  <strong className="text-gray-900">{totales.hitos}</strong>
                 </span>
                 <span className="text-gray-600">
                   Total: <strong className="text-gray-900">{totalGeneral}</strong> día(s)

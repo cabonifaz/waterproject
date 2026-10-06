@@ -11,7 +11,7 @@ import SelectorMiembros from './SelectorMiembros';
 import BotonesOrden from './BotonesOrden';
 import { CasillaActividad, CasillaGrupo, claveTarea } from './SeleccionActividades';
 import { EtapaConContenido, Miembro, TareaMatrizConDias } from '@/types';
-import { diasPlanificadosEtapa, calcularPorcentaje } from '@/lib/planificacion';
+import { diasPlanificadosEtapa, calcularPorcentaje, contarDias } from '@/lib/planificacion';
 import { fechasHito, fechaCierreEfectiva, formatFechaCorta } from '@/lib/hitos';
 
 interface Props {
@@ -93,7 +93,7 @@ const EtapaSeccion = ({ etapa, miembrosProyecto, totalGeneral, onRefrescar }: Pr
                       H
                     </th>
                     <th className="px-3 py-2 text-left font-semibold">Título</th>
-                    <th className="px-3 py-2 text-center font-semibold">Días trabajo (Gantt)</th>
+                    <th className="px-3 py-2 text-center font-semibold">Días (Gantt)</th>
                     <th className="px-3 py-2 text-center font-semibold">Miembros</th>
                     <th className="px-3 py-2 text-center font-semibold" title="Según el hito del Gantt REAL">
                       Estado
@@ -103,7 +103,7 @@ const EtapaSeccion = ({ etapa, miembrosProyecto, totalGeneral, onRefrescar }: Pr
                 </thead>
                 <tbody>
                   {etapa.tareasMatrices.map((t, i) => {
-                    const diasTrabajo = t.diasPlanificados.filter((d) => d.tipo_marca === 'trabajo').length;
+                    const diasTrabajo = contarDias(t.diasPlanificados); // incluye los días de hito
                     // H planificado = fecha(s) comprometida(s); el estado
                     // "Cerrada" sale solo del hito del Gantt REAL.
                     const hitos = fechasHito(t.diasPlanificados);
