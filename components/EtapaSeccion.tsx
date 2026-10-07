@@ -34,6 +34,34 @@ const EtapaSeccion = ({ etapa, miembrosProyecto, totalGeneral, onRefrescar }: Pr
   const [editandoTarea, setEditandoTarea] = useState<TareaMatrizConDias | null>(null);
   const idsTareas = etapa.tareasMatrices.map((t) => t.id);
   const idsModulos = etapa.modulos.map((m) => m.id);
+  const [desactivando, setDesactivando] = useState(false);
+
+  // Desactivar (no borra): ej. la etapa "Cierre" cuando cada módulo ya
+  // tiene su propio cierre. Se reactiva desde "Etapas desactivadas".
+  const handleDesactivar = async () => {
+    if (
+      !confirm(
+        `¿Desactivar la etapa "${etapa.nombre}"?\n\nDeja de verse en la estructura, los Gantt, los Excel y los reportes, pero no se borra nada: se puede reactivar tal cual desde "Etapas desactivadas", al final de la página.`
+      )
+    ) {
+      return;
+    }
+    setDesactivando(true);
+    try {
+      const res = await fetch(`/api/etapas/${etapa.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ activa: false }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'No se pudo desactivar la etapa');
+      onRefrescar();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'No se pudo desactivar la etapa');
+    } finally {
+      setDesactivando(false);
+    }
+  };
 
   return (
     <div className="bg-white rounded-lg shadow mb-4 overflow-hidden">
@@ -74,6 +102,16 @@ const EtapaSeccion = ({ etapa, miembrosProyecto, totalGeneral, onRefrescar }: Pr
                 className="text-xs px-3 py-1.5 bg-indigo-100 hover:bg-indigo-200 rounded-lg font-semibold text-indigo-700"
               >
                 ➕ Módulo
+              </button>
+            )}
+            {etapa.tipo === 'simple' && (
+              <button
+                onClick={handleDesactivar}
+                disabled={desactivando}
+                title="Ocultar esta etapa sin borrarla (ej. el Cierre del proyecto si cada módulo tiene su cierre)"
+                className="ml-auto text-xs px-3 py-1.5 border border-red-200 text-red-600 hover:bg-red-50 rounded-lg font-semibold disabled:opacity-50"
+              >
+                {desactivando ? '...' : '🗑️ Desactivar etapa'}
               </button>
             )}
           </div>

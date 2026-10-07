@@ -155,5 +155,9 @@ export async function obtenerEstructuraProyecto(proyectoId: number): Promise<Est
     })
   );
 
-  return { proyecto, etapas: etapasConContenido, miembros };
+  // Las etapas desactivadas no forman parte del árbol (Gantt, reportes,
+  // totales): solo se informan para poder reactivarlas.
+  const etapasInactivas = await etapasService.listarEtapasInactivasProyecto(proyectoId);
+
+  return { proyecto, etapas: etapasConContenido, miembros, etapasInactivas };
 }

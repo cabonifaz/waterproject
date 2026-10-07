@@ -90,6 +90,11 @@ CREATE TABLE IF NOT EXISTS etapas (
 -- duplicada", error que el script de setup ya tolera y sigue de largo.
 ALTER TABLE etapas ADD COLUMN tipo ENUM('desarrollo', 'simple') NOT NULL DEFAULT 'simple' AFTER nombre;
 
+-- Desactivar una etapa (ej. "Cierre" del proyecto cuando cada módulo ya
+-- tiene su propio cierre): deja de listarse en la estructura, Gantt,
+-- reportes y totales, sin borrar nada — se puede reactivar tal cual.
+ALTER TABLE etapas ADD COLUMN activa BOOLEAN NOT NULL DEFAULT TRUE AFTER tipo;
+
 CREATE TABLE IF NOT EXISTS modulos (
   id INT AUTO_INCREMENT PRIMARY KEY,
   etapa_id INT NOT NULL,
@@ -694,7 +699,40 @@ CREATE PROCEDURE sp_listar_etapas_proyecto (
   IN p_proyecto_id INT
 )
 BEGIN
-  SELECT * FROM etapas WHERE proyecto_id = p_proyecto_id ORDER BY orden, id;
+  SELECT * FROM etapas WHERE proyecto_id = p_proyecto_id AND activa = TRUE ORDER BY orden, id;
+END$$
+DELIMITER ;
+
+-- Etapas desactivadas del proyecto (para poder reactivarlas).
+DROP PROCEDURE IF EXISTS sp_listar_etapas_inactivas_proyecto;
+DELIMITER $$
+CREATE PROCEDURE sp_listar_etapas_inactivas_proyecto (
+  IN p_proyecto_id INT
+)
+BEGIN
+  SELECT * FROM etapas WHERE proyecto_id = p_proyecto_id AND activa = FALSE ORDER BY orden, id;
+END$$
+DELIMITER ;
+
+-- Activa / desactiva una etapa. La etapa de Desarrollo (módulos -> épicas
+-- -> HU) no se puede desactivar.
+DROP PROCEDURE IF EXISTS sp_cambiar_estado_etapa;
+DELIMITER $$
+CREATE PROCEDURE sp_cambiar_estado_etapa (
+  IN p_id INT,
+  IN p_activa BOOLEAN
+)
+BEGIN
+  DECLARE v_tipo VARCHAR(20);
+  SELECT tipo INTO v_tipo FROM etapas WHERE id = p_id;
+  IF v_tipo IS NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Etapa inexistente';
+  END IF;
+  IF v_tipo = 'desarrollo' AND NOT p_activa THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'La etapa de Desarrollo no se puede desactivar';
+  END IF;
+  UPDATE etapas SET activa = p_activa WHERE id = p_id;
+  SELECT * FROM etapas WHERE id = p_id;
 END$$
 DELIMITER ;
 
@@ -1689,14 +1727,14 @@ BEGIN
     JOIN historias_usuario h ON d.historia_usuario_id = h.id
     JOIN epicas e ON h.epica_id = e.id
     JOIN modulos m ON e.modulo_id = m.id
-    JOIN etapas et ON m.etapa_id = et.id
+    JOIN etapas et ON m.etapa_id = et.id AND et.activa = TRUE
     GROUP BY et.proyecto_id
   ) planif_hu ON planif_hu.proyecto_id = p.id
   LEFT JOIN (
     SELECT et.proyecto_id, COUNT(*) AS dias
     FROM tarea_matriz_dias_planificados d
     JOIN tareas_matrices t ON d.tarea_matriz_id = t.id
-    JOIN etapas et ON t.etapa_id = et.id
+    JOIN etapas et ON t.etapa_id = et.id AND et.activa = TRUE
     GROUP BY et.proyecto_id
   ) planif_tm ON planif_tm.proyecto_id = p.id
   LEFT JOIN (
@@ -1705,14 +1743,14 @@ BEGIN
     JOIN historias_usuario h ON d.historia_usuario_id = h.id
     JOIN epicas e ON h.epica_id = e.id
     JOIN modulos m ON e.modulo_id = m.id
-    JOIN etapas et ON m.etapa_id = et.id
+    JOIN etapas et ON m.etapa_id = et.id AND et.activa = TRUE
     GROUP BY et.proyecto_id
   ) real_hu ON real_hu.proyecto_id = p.id
   LEFT JOIN (
     SELECT et.proyecto_id, COUNT(*) AS dias
     FROM tarea_matriz_dias_reales d
     JOIN tareas_matrices t ON d.tarea_matriz_id = t.id
-    JOIN etapas et ON t.etapa_id = et.id
+    JOIN etapas et ON t.etapa_id = et.id AND et.activa = TRUE
     GROUP BY et.proyecto_id
   ) real_tm ON real_tm.proyecto_id = p.id
   LEFT JOIN (
@@ -1721,7 +1759,7 @@ BEGIN
     JOIN historias_usuario h ON d.historia_usuario_id = h.id
     JOIN epicas e ON h.epica_id = e.id
     JOIN modulos m ON e.modulo_id = m.id
-    JOIN etapas et ON m.etapa_id = et.id
+    JOIN etapas et ON m.etapa_id = et.id AND et.activa = TRUE
     WHERE d.tipo_marca <> 'cierre'
     GROUP BY et.proyecto_id
   ) total_hu ON total_hu.proyecto_id = p.id
@@ -1729,7 +1767,7 @@ BEGIN
     SELECT et.proyecto_id, COUNT(DISTINCT t.id) AS total
     FROM tarea_matriz_dias_planificados d
     JOIN tareas_matrices t ON d.tarea_matriz_id = t.id
-    JOIN etapas et ON t.etapa_id = et.id
+    JOIN etapas et ON t.etapa_id = et.id AND et.activa = TRUE
     WHERE d.tipo_marca <> 'cierre'
     GROUP BY et.proyecto_id
   ) total_tm ON total_tm.proyecto_id = p.id
@@ -1739,7 +1777,7 @@ BEGIN
     JOIN historias_usuario h ON d.historia_usuario_id = h.id
     JOIN epicas e ON h.epica_id = e.id
     JOIN modulos m ON e.modulo_id = m.id
-    JOIN etapas et ON m.etapa_id = et.id
+    JOIN etapas et ON m.etapa_id = et.id AND et.activa = TRUE
     WHERE d.tipo_marca = 'cierre'
       AND EXISTS (
         SELECT 1 FROM hu_dias_planificados dp WHERE dp.historia_usuario_id = h.id AND dp.tipo_marca <> 'cierre'
@@ -1758,7 +1796,7 @@ BEGIN
       GROUP BY d.tarea_matriz_id
     ) r
     JOIN tareas_matrices t ON r.tarea_matriz_id = t.id
-    JOIN etapas et ON t.etapa_id = et.id
+    JOIN etapas et ON t.etapa_id = et.id AND et.activa = TRUE
     WHERE r.ultimo_hito IS NOT NULL
       AND (r.ultimo_trabajo IS NULL OR r.ultimo_hito >= r.ultimo_trabajo)
       AND EXISTS (

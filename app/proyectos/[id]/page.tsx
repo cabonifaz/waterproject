@@ -28,6 +28,25 @@ export default function ProyectoEstructuraPage() {
   const [mostrarEliminar, setMostrarEliminar] = useState(false);
   const [mostrarMiembros, setMostrarMiembros] = useState(false);
   const [mostrarActividadesCierre, setMostrarActividadesCierre] = useState(false);
+  const [reactivando, setReactivando] = useState<number | null>(null);
+
+  const handleReactivarEtapa = async (etapaId: number) => {
+    setReactivando(etapaId);
+    try {
+      const res = await fetch(`/api/etapas/${etapaId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ activa: true }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'No se pudo reactivar la etapa');
+      await cargarEstructura();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'No se pudo reactivar la etapa');
+    } finally {
+      setReactivando(null);
+    }
+  };
 
   const cargarEstructura = useCallback(async () => {
     try {
@@ -156,6 +175,33 @@ export default function ProyectoEstructuraPage() {
                   onRefrescar={cargarEstructura}
                 />
               ))}
+
+              {(estructura.etapasInactivas?.length ?? 0) > 0 && (
+                <div className="bg-white rounded-lg shadow mb-4 p-4 border border-dashed border-gray-300">
+                  <h2 className="text-sm font-bold text-gray-700 mb-2">🗂️ Etapas desactivadas</h2>
+                  <p className="text-xs text-gray-400 mb-3">
+                    No se ven en los Gantt, Excel ni reportes. Al reactivarlas vuelven tal cual estaban (con sus tareas
+                    y días marcados).
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {estructura.etapasInactivas!.map((e) => (
+                      <span
+                        key={e.id}
+                        className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 rounded-lg text-sm text-gray-700"
+                      >
+                        {e.nombre}
+                        <button
+                          onClick={() => handleReactivarEtapa(e.id)}
+                          disabled={reactivando === e.id}
+                          className="text-xs px-2 py-0.5 bg-blue-600 text-white rounded font-semibold hover:bg-blue-700 disabled:opacity-50"
+                        >
+                          {reactivando === e.id ? '...' : 'Reactivar'}
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <BarraAsignacionGrupo miembrosProyecto={estructura.miembros} onAsignado={cargarEstructura} />
               {/* espacio para que la barra flotante no tape la última fila */}

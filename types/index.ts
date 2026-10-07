@@ -80,6 +80,7 @@ export interface Etapa {
   proyecto_id: number;
   nombre: string;
   tipo: 'desarrollo' | 'simple';
+  activa?: boolean;
   orden: number;
   created_at: Date;
   updated_at: Date;
@@ -206,8 +207,9 @@ export interface EtapaConContenido extends Etapa {
 
 export interface EstructuraProyecto {
   proyecto: Proyecto;
-  etapas: EtapaConContenido[];
+  etapas: EtapaConContenido[]; // solo las activas
   miembros: Miembro[];
+  etapasInactivas?: Etapa[]; // desactivadas, para poder reactivarlas
 }
 
 // ========================================
