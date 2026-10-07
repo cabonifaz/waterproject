@@ -24,7 +24,25 @@ const ModuloSeccion = ({ modulo, miembrosProyecto, totalGeneral, idsHermanos, in
   const [mostrarImportar, setMostrarImportar] = useState(false);
   const [editando, setEditando] = useState(false);
   const [expandido, setExpandido] = useState(true);
-  const idsEpicas = modulo.epicas.map((e) => e.id);
+  const [agregandoCierre, setAgregandoCierre] = useState(false);
+  // El bloque "Cierre del módulo" siempre va al final: no entra en el ▲▼.
+  const idsEpicas = modulo.epicas.filter((e) => !e.es_cierre_modulo).map((e) => e.id);
+  const tieneCierre = modulo.epicas.some((e) => e.es_cierre_modulo);
+
+  const handleAgregarCierre = async () => {
+    setAgregandoCierre(true);
+    try {
+      const res = await fetch(`/api/modulos/${modulo.id}/cierre`, { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'No se pudo agregar el cierre del módulo');
+      setExpandido(true);
+      onRefrescar();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'No se pudo agregar el cierre del módulo');
+    } finally {
+      setAgregandoCierre(false);
+    }
+  };
 
   return (
     <div className="ml-4 mt-3 rounded-lg overflow-hidden border border-indigo-200">
@@ -48,6 +66,16 @@ const ModuloSeccion = ({ modulo, miembrosProyecto, totalGeneral, idsHermanos, in
           >
             ➕ Épica / Funcionalidad
           </button>
+          {!tieneCierre && (
+            <button
+              onClick={handleAgregarCierre}
+              disabled={agregandoCierre}
+              title="Agregar al final del módulo las actividades de cierre (Ethical Hacking, comités, pase a producción...). Se editan en 🏁 Act. de cierre."
+              className="text-xs text-amber-800 hover:text-amber-950 font-semibold disabled:opacity-50"
+            >
+              {agregandoCierre ? '...' : '🏁 Cierre del módulo'}
+            </button>
+          )}
           <button
             onClick={() => setEditando(true)}
             title="Editar módulo"
@@ -71,7 +99,7 @@ const ModuloSeccion = ({ modulo, miembrosProyecto, totalGeneral, idsHermanos, in
               miembrosProyecto={miembrosProyecto}
               totalGeneral={totalGeneral}
               idsHermanas={idsEpicas}
-              indice={i}
+              indice={epica.es_cierre_modulo ? -1 : i}
               onRefrescar={onRefrescar}
             />
           ))}

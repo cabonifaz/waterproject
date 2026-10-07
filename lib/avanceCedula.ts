@@ -93,7 +93,8 @@ export function construirFilasAvanceCedula(estructura: EstructuraProyecto): Fila
           tipo: 'epica',
           referenciaId: epica.id,
           etapaNombre: etapa.nombre,
-          nombre: epica.nombre,
+          // "Cierre del módulo" se repite en cada módulo: se aclara de cuál es.
+          nombre: epica.es_cierre_modulo ? `${epica.nombre} — ${modulo.nombre}` : epica.nombre,
           esEncabezadoEtapa: false,
           diasTotales: diasEpicaBaseline(epica, 'diasBaseline'),
           diasPlanificados: diasEpicaBaseline(epica, 'diasPlanificados'),

@@ -177,6 +177,13 @@ ALTER TABLE historias_usuario ADD COLUMN es_actividad_cierre BOOLEAN NOT NULL DE
 ALTER TABLE historias_usuario ADD COLUMN actividad_cierre_id INT NULL AFTER es_actividad_cierre;
 ALTER TABLE historias_usuario ADD CONSTRAINT fk_hu_actividad_cierre FOREIGN KEY (actividad_cierre_id) REFERENCES proyecto_actividades_cierre(id) ON DELETE SET NULL;
 
+-- Actividades de cierre de MÓDULO (ej. Ethical Hacking, comités, pase a
+-- producción): una segunda lista por proyecto (ambito = 'modulo') que se
+-- agrega a pedido al final de un módulo, como una épica especial
+-- (epicas.es_cierre_modulo) que siempre se lista última dentro del módulo.
+ALTER TABLE proyecto_actividades_cierre ADD COLUMN ambito ENUM('funcionalidad', 'modulo') NOT NULL DEFAULT 'funcionalidad' AFTER nombre;
+ALTER TABLE epicas ADD COLUMN es_cierre_modulo BOOLEAN NOT NULL DEFAULT FALSE AFTER activa;
+
 CREATE TABLE IF NOT EXISTS tareas_matrices (
   id INT AUTO_INCREMENT PRIMARY KEY,
   etapa_id INT NOT NULL,
@@ -761,7 +768,7 @@ BEGIN
   FROM modulos m
   JOIN etapas et ON m.etapa_id = et.id
   JOIN proyectos p ON et.proyecto_id = p.id
-  JOIN proyecto_actividades_cierre ac ON ac.proyecto_id = p.id
+  JOIN proyecto_actividades_cierre ac ON ac.proyecto_id = p.id AND ac.ambito = 'funcionalidad'
   WHERE m.id = p_modulo_id AND p.auto_actividades_cierre = TRUE;
 
   SELECT v_id AS id;
@@ -774,7 +781,8 @@ CREATE PROCEDURE sp_listar_epicas_modulo (
   IN p_modulo_id INT
 )
 BEGIN
-  SELECT * FROM epicas WHERE modulo_id = p_modulo_id AND activa = TRUE ORDER BY orden, id;
+  -- El bloque "Cierre del módulo" (es_cierre_modulo) siempre al final.
+  SELECT * FROM epicas WHERE modulo_id = p_modulo_id AND activa = TRUE ORDER BY es_cierre_modulo, orden, id;
 END$$
 DELIMITER ;
 
@@ -788,7 +796,7 @@ CREATE PROCEDURE sp_listar_epicas_modulo_todas (
   IN p_modulo_id INT
 )
 BEGIN
-  SELECT * FROM epicas WHERE modulo_id = p_modulo_id ORDER BY orden, id;
+  SELECT * FROM epicas WHERE modulo_id = p_modulo_id ORDER BY es_cierre_modulo, orden, id;
 END$$
 DELIMITER ;
 
@@ -2363,7 +2371,7 @@ CREATE PROCEDURE sp_listar_actividades_cierre (
   IN p_proyecto_id INT
 )
 BEGIN
-  SELECT * FROM proyecto_actividades_cierre WHERE proyecto_id = p_proyecto_id ORDER BY orden, id;
+  SELECT * FROM proyecto_actividades_cierre WHERE proyecto_id = p_proyecto_id ORDER BY ambito, orden, id;
 END$$
 DELIMITER ;
 
@@ -2383,12 +2391,15 @@ DROP PROCEDURE IF EXISTS sp_crear_actividad_cierre;
 DELIMITER $$
 CREATE PROCEDURE sp_crear_actividad_cierre (
   IN p_proyecto_id INT,
-  IN p_nombre VARCHAR(500)
+  IN p_nombre VARCHAR(500),
+  IN p_ambito VARCHAR(20)
 )
 BEGIN
   DECLARE v_orden INT DEFAULT 0;
-  SELECT COALESCE(MAX(orden), 0) + 1 INTO v_orden FROM proyecto_actividades_cierre WHERE proyecto_id = p_proyecto_id;
-  INSERT INTO proyecto_actividades_cierre (proyecto_id, nombre, orden) VALUES (p_proyecto_id, p_nombre, v_orden);
+  DECLARE v_ambito VARCHAR(20) DEFAULT COALESCE(p_ambito, 'funcionalidad');
+  SELECT COALESCE(MAX(orden), 0) + 1 INTO v_orden
+  FROM proyecto_actividades_cierre WHERE proyecto_id = p_proyecto_id AND ambito = v_ambito;
+  INSERT INTO proyecto_actividades_cierre (proyecto_id, nombre, ambito, orden) VALUES (p_proyecto_id, p_nombre, v_ambito, v_orden);
   SELECT * FROM proyecto_actividades_cierre WHERE id = LAST_INSERT_ID();
 END$$
 DELIMITER ;
@@ -2435,10 +2446,12 @@ CREATE PROCEDURE sp_aplicar_actividades_cierre (
 BEGIN
   DECLARE v_reactivadas INT DEFAULT 0;
 
+  -- Solo la lista de funcionalidad: el cierre de módulo se agrega a pedido
+  -- por módulo (sp_agregar_cierre_modulo).
   UPDATE historias_usuario h
   JOIN proyecto_actividades_cierre ac ON h.actividad_cierre_id = ac.id
   SET h.activa = TRUE
-  WHERE ac.proyecto_id = p_proyecto_id AND h.activa = FALSE;
+  WHERE ac.proyecto_id = p_proyecto_id AND ac.ambito = 'funcionalidad' AND h.activa = FALSE;
   SET v_reactivadas = ROW_COUNT();
 
   INSERT INTO historias_usuario (epica_id, titulo, es_actividad_cierre, actividad_cierre_id, orden)
@@ -2446,9 +2459,10 @@ BEGIN
   FROM epicas e
   JOIN modulos m ON e.modulo_id = m.id
   JOIN etapas et ON m.etapa_id = et.id
-  JOIN proyecto_actividades_cierre ac ON ac.proyecto_id = et.proyecto_id
+  JOIN proyecto_actividades_cierre ac ON ac.proyecto_id = et.proyecto_id AND ac.ambito = 'funcionalidad'
   WHERE et.proyecto_id = p_proyecto_id
     AND e.activa = TRUE
+    AND e.es_cierre_modulo = FALSE
     AND NOT EXISTS (
       SELECT 1 FROM historias_usuario h WHERE h.epica_id = e.id AND h.actividad_cierre_id = ac.id
     );
@@ -2509,5 +2523,88 @@ BEGIN
     JOIN JSON_TABLE(p_tm_ids, '$[*]' COLUMNS (id INT PATH '$')) a ON tm.tarea_matriz_id = a.id
     JOIN JSON_TABLE(p_miembro_ids, '$[*]' COLUMNS (id INT PATH '$')) m ON tm.miembro_id = m.id;
   END IF;
+END$$
+DELIMITER ;
+
+-- ========================================
+-- 21. ACTIVIDADES DE CIERRE DE MÓDULO
+-- ========================================
+
+-- Carga la lista por defecto de actividades de cierre de módulo (las
+-- mismas de la etapa Cierre de la plantilla) si el proyecto todavía no
+-- tiene ninguna. Se llama al crear el proyecto; no se re-siembra si el
+-- usuario después vacía la lista a propósito.
+DROP PROCEDURE IF EXISTS sp_inicializar_cierre_modulo;
+DELIMITER $$
+CREATE PROCEDURE sp_inicializar_cierre_modulo (
+  IN p_proyecto_id INT
+)
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM proyecto_actividades_cierre WHERE proyecto_id = p_proyecto_id AND ambito = 'modulo'
+  ) THEN
+    INSERT INTO proyecto_actividades_cierre (proyecto_id, nombre, ambito, orden) VALUES
+      (p_proyecto_id, 'Ejecución Ethical Hacking', 'modulo', 1),
+      (p_proyecto_id, 'Comité Extraordinario de Riesgo Operacional', 'modulo', 2),
+      (p_proyecto_id, 'Comité de Pase a Producción', 'modulo', 3),
+      (p_proyecto_id, 'Pase a producción', 'modulo', 4);
+  END IF;
+  SELECT * FROM proyecto_actividades_cierre WHERE proyecto_id = p_proyecto_id AND ambito = 'modulo' ORDER BY orden, id;
+END$$
+DELIMITER ;
+
+-- Agrega (o completa) el bloque "Cierre del módulo" al final de un
+-- módulo: una épica especial (es_cierre_modulo) con una actividad por cada
+-- nombre de la lista de cierre de módulo del proyecto. Si el bloque ya
+-- existía (aunque se hubiera eliminado), lo reactiva y solo agrega o
+-- reactiva las actividades que le falten — nunca duplica.
+DROP PROCEDURE IF EXISTS sp_agregar_cierre_modulo;
+DELIMITER $$
+CREATE PROCEDURE sp_agregar_cierre_modulo (
+  IN p_modulo_id INT
+)
+BEGIN
+  DECLARE v_epica_id INT DEFAULT NULL;
+  DECLARE v_proyecto_id INT DEFAULT NULL;
+
+  SELECT et.proyecto_id INTO v_proyecto_id
+  FROM modulos m JOIN etapas et ON m.etapa_id = et.id
+  WHERE m.id = p_modulo_id;
+  IF v_proyecto_id IS NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Módulo inexistente';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM proyecto_actividades_cierre WHERE proyecto_id = v_proyecto_id AND ambito = 'modulo'
+  ) THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'El proyecto no tiene actividades de cierre de módulo definidas.';
+  END IF;
+
+  SELECT id INTO v_epica_id FROM epicas
+  WHERE modulo_id = p_modulo_id AND es_cierre_modulo = TRUE
+  ORDER BY id LIMIT 1;
+
+  IF v_epica_id IS NULL THEN
+    INSERT INTO epicas (modulo_id, nombre, activa, es_cierre_modulo, orden)
+    VALUES (p_modulo_id, 'Cierre del módulo', TRUE, TRUE, 0);
+    SET v_epica_id = LAST_INSERT_ID();
+  ELSE
+    UPDATE epicas SET activa = TRUE WHERE id = v_epica_id;
+  END IF;
+
+  UPDATE historias_usuario h
+  JOIN proyecto_actividades_cierre ac ON h.actividad_cierre_id = ac.id
+  SET h.activa = TRUE
+  WHERE h.epica_id = v_epica_id AND ac.ambito = 'modulo';
+
+  INSERT INTO historias_usuario (epica_id, titulo, es_actividad_cierre, actividad_cierre_id, orden)
+  SELECT v_epica_id, ac.nombre, TRUE, ac.id, ac.orden
+  FROM proyecto_actividades_cierre ac
+  WHERE ac.proyecto_id = v_proyecto_id AND ac.ambito = 'modulo'
+    AND NOT EXISTS (
+      SELECT 1 FROM historias_usuario h WHERE h.epica_id = v_epica_id AND h.actividad_cierre_id = ac.id
+    );
+
+  SELECT v_epica_id AS epica_id;
 END$$
 DELIMITER ;

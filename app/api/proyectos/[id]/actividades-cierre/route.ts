@@ -1,7 +1,7 @@
 // app/api/proyectos/[id]/actividades-cierre/route.ts
 // Lista de actividades de cierre por funcionalidad del proyecto.
 // GET: { auto, actividades }. PUT: activa/desactiva la auto-creación.
-// POST: agrega un nombre a la lista.
+// POST: agrega un nombre a la lista (body.ambito: 'funcionalidad' | 'modulo').
 
 import { NextRequest, NextResponse } from 'next/server';
 import * as actividadesCierreService from '@/lib/services/actividadesCierreService';
@@ -53,7 +53,8 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     const body = await request.json();
     const nombre = String(body.nombre ?? '').trim();
     if (!nombre) return NextResponse.json({ error: 'El nombre es obligatorio' }, { status: 400 });
-    const actividad = await actividadesCierreService.crearActividadCierre(proyectoId, nombre);
+    const ambito = body.ambito === 'modulo' ? 'modulo' : 'funcionalidad';
+    const actividad = await actividadesCierreService.crearActividadCierre(proyectoId, nombre, ambito);
     return NextResponse.json({ success: true, data: actividad, timestamp: new Date().toISOString() }, { status: 201 });
   } catch (error) {
     console.error('Error creando actividad de cierre:', error);

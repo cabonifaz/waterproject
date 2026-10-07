@@ -79,6 +79,10 @@ export async function POST(request: NextRequest) {
       await actividadesCierreService.configurarAutoActividadesCierre(id, true);
     }
 
+    // Lista de cierre de módulo (Ethical Hacking, comités, pase a
+    // producción): siempre disponible, se usa a pedido en cada módulo.
+    await actividadesCierreService.inicializarCierreModulo(id);
+
     return NextResponse.json(
       {
         success: true,

@@ -99,6 +99,7 @@ export interface Epica {
   modulo_id: number;
   nombre: string;
   activa: boolean;
+  es_cierre_modulo?: boolean; // bloque "Cierre del módulo" (siempre al final del módulo)
   orden: number;
   created_at: Date;
   updated_at: Date;
@@ -129,10 +130,15 @@ export interface HistoriaUsuario {
 
 // Nombre de una actividad de cierre que se crea en cada funcionalidad
 // (épica) del proyecto, si proyectos.auto_actividades_cierre está activo.
+export type AmbitoActividadCierre = 'funcionalidad' | 'modulo';
+
 export interface ActividadCierre {
   id: number;
   proyecto_id: number;
   nombre: string;
+  // 'funcionalidad': se crea en cada épica nueva (si está activado).
+  // 'modulo': se agrega a pedido al final de un módulo ("Cierre del módulo").
+  ambito: AmbitoActividadCierre;
   orden: number;
 }
 

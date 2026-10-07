@@ -42,6 +42,8 @@ const EpicaSeccion = ({ epica, miembrosProyecto, totalGeneral, idsHermanas, indi
   const [eliminandoEpica, setEliminandoEpica] = useState(false);
   const [expandido, setExpandido] = useState(true);
   const diasEpica = diasPlanificadosEpica(epica);
+  // Bloque "Cierre del módulo": siempre al final del módulo (sin ▲▼).
+  const esCierreModulo = !!epica.es_cierre_modulo;
   const porcentajeEpica = calcularPorcentaje(diasEpica, totalGeneral);
 
   // Las HU comunes y las actividades de cierre se reordenan cada grupo por
@@ -90,19 +92,19 @@ const EpicaSeccion = ({ epica, miembrosProyecto, totalGeneral, idsHermanas, indi
   };
 
   return (
-    <div className="ml-4 mt-3 rounded-lg overflow-hidden border border-blue-200">
-      <div className="flex justify-between items-center px-3 py-1.5 bg-blue-100 gap-2">
+    <div className={`ml-4 mt-3 rounded-lg overflow-hidden border ${esCierreModulo ? 'border-amber-300' : 'border-blue-200'}`}>
+      <div className={`flex justify-between items-center px-3 py-1.5 gap-2 ${esCierreModulo ? 'bg-amber-100' : 'bg-blue-100'}`}>
         <CasillaGrupo
           claves={epica.historias.map((h) => claveHU(h.id))}
           titulo="Seleccionar todas las actividades de la funcionalidad (para asignar talentos)"
         />
-        <BotonesOrden tipo="epica" ids={idsHermanas} indice={indice} onMovido={onRefrescar} />
+        {!esCierreModulo && <BotonesOrden tipo="epica" ids={idsHermanas} indice={indice} onMovido={onRefrescar} />}
         <button
           onClick={() => setExpandido((v) => !v)}
           className="flex-1 text-left"
         >
           <h4 className="font-semibold text-blue-900 text-xs">
-            {expandido ? '▼' : '▶'} 🎯 {epica.nombre}
+            {expandido ? '▼' : '▶'} {esCierreModulo ? '🏁' : '🎯'} {epica.nombre}
             <span className="font-normal text-blue-700">
               {' '}
               ({diasEpica} día{diasEpica === 1 ? '' : 's'}
