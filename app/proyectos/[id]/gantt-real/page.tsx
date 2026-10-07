@@ -16,6 +16,7 @@ import SelectorMiembros from '@/components/SelectorMiembros';
 import Modal from '@/components/Modal';
 import FormularioImportarGanttExcel from '@/components/FormularioImportarGanttExcel';
 import ObservacionesModal from '@/components/ObservacionesModal';
+import AlertaSuperposiciones from '@/components/AlertaSuperposiciones';
 import { EstructuraProyecto, Sprint, Feriado, Miembro, ObservacionInventario } from '@/types';
 import { calcularTotalesDias, calcularPorcentaje, totalDias, TOTALES_VACIOS } from '@/lib/planificacion';
 import { porcentaje as porcentajeCumplim, calcularSemaforo, topePorcentaje, Semaforo } from '@/lib/avanceCedula';
@@ -473,6 +474,11 @@ export default function GanttRealPage() {
     () => (estructura ? construirItemsRender(estructura, indexReal, indexPlan) : []),
     [estructura, indexReal, indexPlan]
   );
+  // Filas (HU / tareas matrices) con sus talentos, para la alerta de superposición.
+  const filasConTalentos = useMemo(
+    () => itemsRender.flatMap((i) => (i.kind === 'fila' ? [i.fila] : [])),
+    [itemsRender]
+  );
 
   // "Con hito" = ya tiene marca de cierre real. "Sin hito" = todavía
   // pendiente de completar. Los divisores (etapa/módulo/épica) solo se
@@ -760,6 +766,7 @@ export default function GanttRealPage() {
               {error}
             </div>
           )}
+          {estructura && <AlertaSuperposiciones filas={filasConTalentos} marcas={marcas} contexto="real" />}
 
           {loading && <div className="animate-pulse h-32 bg-gray-200 rounded mb-4" />}
 

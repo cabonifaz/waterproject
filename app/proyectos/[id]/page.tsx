@@ -111,6 +111,13 @@ export default function ProyectoEstructuraPage() {
                   >
                     👥 Miembros
                   </button>
+                  <a
+                    href={`/proyectos/${proyectoId}/carga`}
+                    title="Carga por persona: hasta qué día tiene tareas, por módulo, por sprint y por día"
+                    className="px-6 py-3 bg-white border-2 border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 font-semibold transition-colors"
+                  >
+                    📈 Carga del equipo
+                  </a>
                   <button
                     onClick={() => setMostrarActividadesCierre(true)}
                     title="Actividades de cierre obligatorias por funcionalidad"

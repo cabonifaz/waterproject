@@ -154,6 +154,12 @@ export default function PiDetallePage() {
                   )}
                 </div>
                 <div className="flex gap-2">
+                  <a
+                    href={`/pis/${piId}/carga`}
+                    className="px-4 py-2 bg-white border-2 border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 font-semibold"
+                  >
+                    👥 Carga del equipo
+                  </a>
                   <button
                     onClick={() => setEditandoPI(true)}
                     className="px-4 py-2 bg-white border-2 border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 font-semibold"

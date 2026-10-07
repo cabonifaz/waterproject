@@ -18,6 +18,7 @@ import Modal from '@/components/Modal';
 import FormularioImportarGanttExcel from '@/components/FormularioImportarGanttExcel';
 import FormularioImportarPlanExterno from '@/components/FormularioImportarPlanExterno';
 import EditarSprintsModal from '@/components/EditarSprintsModal';
+import AlertaSuperposiciones from '@/components/AlertaSuperposiciones';
 import { EstructuraProyecto, Sprint, Feriado, Miembro } from '@/types';
 import {
   calcularTotalesPlanificados,
@@ -303,6 +304,11 @@ export default function GanttPage() {
   const feriadosSet = useMemo(() => new Set(feriados.map((f) => String(f.fecha).slice(0, 10))), [feriados]);
   const columnas = useMemo(() => calcularColumnas(sprints, feriadosSet), [sprints, feriadosSet]);
   const itemsRender = useMemo(() => (estructura ? construirItemsRender(estructura) : []), [estructura]);
+  // Filas (HU / tareas matrices) con sus talentos, para la alerta de superposición.
+  const filasConTalentos = useMemo(
+    () => itemsRender.flatMap((i) => (i.kind === 'fila' ? [i.fila] : [])),
+    [itemsRender]
+  );
   const cantidadFilas = useMemo(() => itemsRender.filter((i) => i.kind === 'fila').length, [itemsRender]);
   // Hitos por fila calculados en vivo desde `marcas` (no desde
   // `estructura`), para que el H del panel fijo se actualice apenas se
@@ -585,6 +591,7 @@ export default function GanttPage() {
               {error}
             </div>
           )}
+          {estructura && <AlertaSuperposiciones filas={filasConTalentos} marcas={marcas} contexto="planificado" />}
 
           {loading && !estructura && <div className="animate-pulse h-32 bg-gray-200 rounded mb-4" />}
 
