@@ -28,7 +28,9 @@ import {
   totalDias,
   TOTALES_VACIOS,
 } from '@/lib/planificacion';
-import { formatFechaCorta } from '@/lib/hitos';
+import { formatFechaCorta, hitoCierreFuncionalidad } from '@/lib/hitos';
+import { analizarSuperposiciones } from '@/lib/superposiciones';
+import { filtrarConDivisores } from '@/lib/ganttFiltro';
 import { exportarGanttComoExcel, ItemExcel } from '@/lib/exportarGanttExcel';
 
 type Modo = 'desarrollo' | 'certificacion' | 'cierre';
@@ -47,7 +49,14 @@ interface FilaGantt {
 type NivelDivisor = 'etapa' | 'modulo' | 'epica';
 
 type ItemRender =
-  | { kind: 'divisor'; nivel: NivelDivisor; label: string; key: string; diasGrupo?: number }
+  | {
+      kind: 'divisor';
+      nivel: NivelDivisor;
+      label: string;
+      key: string;
+      diasGrupo?: number;
+      huIds?: number[]; // solo épicas: para el hito automático de cierre de la funcionalidad
+    }
   | { kind: 'fila'; fila: FilaGantt };
 
 const ANCHO_ACTIVIDAD = 260;
@@ -168,6 +177,7 @@ function construirItemsRender(estructura: EstructuraProyecto): ItemRender[] {
           label: epica.nombre,
           key: `epica-${epica.id}`,
           diasGrupo: diasPlanificadosEpica(epica),
+          huIds: epica.historias.map((h) => h.id),
         });
 
         for (const h of epica.historias) {
@@ -238,6 +248,8 @@ export default function GanttPage() {
   const [mostrarSprints, setMostrarSprints] = useState(false);
   const [modalTituloCompleto, setModalTituloCompleto] = useState<string | null>(null);
   const [controlesAbiertos, setControlesAbiertos] = useState(true);
+  const [soloSuperpuestas, setSoloSuperpuestas] = useState(false);
+  const [filaResaltada, setFilaResaltada] = useState<string | null>(null);
 
   // Panel fijo (H/Actividad/Miembros) como overlay absoluto sincronizado a
   // mano con el scroll vertical — mismo patrón que el Gantt Real (sticky
@@ -310,6 +322,17 @@ export default function GanttPage() {
     [itemsRender]
   );
   const cantidadFilas = useMemo(() => itemsRender.filter((i) => i.kind === 'fila').length, [itemsRender]);
+  // Superposición de talentos, recalculada en vivo con cada marca.
+  const analisis = useMemo(() => analizarSuperposiciones(filasConTalentos, marcas), [filasConTalentos, marcas]);
+  // "Solo superpuestas": deja en el Gantt únicamente las actividades en
+  // conflicto (con su etapa / módulo / funcionalidad) para corregirlas.
+  const itemsVisibles = useMemo(
+    () =>
+      soloSuperpuestas && analisis.filas.size > 0
+        ? filtrarConDivisores(itemsRender, (f) => analisis.filas.has(`${f.fila.tipo}-${f.fila.id}`))
+        : itemsRender,
+    [itemsRender, soloSuperpuestas, analisis]
+  );
   // Hitos por fila calculados en vivo desde `marcas` (no desde
   // `estructura`), para que el H del panel fijo se actualice apenas se
   // marca una celda, sin recargar.
@@ -322,6 +345,25 @@ export default function GanttPage() {
     }
     return mapa;
   }, [marcas]);
+  // Lleva el Gantt a la fila de una actividad (y a su primer día en
+  // conflicto) y la resalta unos segundos.
+  const irAActividad = (clave: string) => {
+    const idx = itemsVisibles.findIndex((i) => i.kind === 'fila' && `${i.fila.tipo}-${i.fila.id}` === clave);
+    const contenedor = scrollRef.current;
+    if (idx < 0 || !contenedor) return;
+    const top = itemsVisibles
+      .slice(0, idx)
+      .reduce((acc, i) => acc + (i.kind === 'divisor' ? ALTO_FILA_DIVISOR : ALTO_FILA_DATO), 0);
+    const primerDia = Array.from(analisis.celdas.keys())
+      .filter((k) => k.startsWith(`${clave}-`))
+      .map((k) => k.slice(k.length - 10))
+      .sort()[0];
+    const col = primerDia ? columnas.findIndex((c) => c.fecha === primerDia) : -1;
+    contenedor.scrollTo({ top: Math.max(0, top - 2 * ALTO_FILA_DATO), left: col >= 0 ? Math.max(0, col * 44 - 132) : contenedor.scrollLeft, behavior: 'smooth' });
+    setFilaResaltada(clave);
+    window.setTimeout(() => setFilaResaltada((actual) => (actual === clave ? null : actual)), 3000);
+  };
+
   const totales = useMemo(
     () => (estructura ? calcularTotalesPlanificados(estructura) : TOTALES_VACIOS),
     [estructura]
@@ -465,7 +507,19 @@ export default function GanttPage() {
 
       const items: ItemExcel[] = itemsRender.map((item) =>
         item.kind === 'divisor'
-          ? { kind: 'divisor', nivel: item.nivel, label: item.label + (item.diasGrupo != null ? sufijo(item.diasGrupo) : '') }
+          ? (() => {
+              // Épica: hito automático de cierre de la funcionalidad.
+              const fechaHito = item.huIds ? hitoCierreFuncionalidad(item.huIds, marcas) ?? undefined : undefined;
+              return {
+                kind: 'divisor' as const,
+                nivel: item.nivel,
+                label:
+                  item.label +
+                  (item.diasGrupo != null ? sufijo(item.diasGrupo) : '') +
+                  (fechaHito ? ` · Cierre ${formatFechaCorta(fechaHito)}` : ''),
+                fechaHito,
+              };
+            })()
           : {
               kind: 'fila',
               tipo: item.fila.tipo,
@@ -591,7 +645,15 @@ export default function GanttPage() {
               {error}
             </div>
           )}
-          {estructura && <AlertaSuperposiciones filas={filasConTalentos} marcas={marcas} contexto="planificado" />}
+          {estructura && (
+            <AlertaSuperposiciones
+              analisis={analisis}
+              contexto="planificado"
+              soloSuperpuestas={soloSuperpuestas}
+              onToggleSoloSuperpuestas={() => setSoloSuperpuestas((v) => !v)}
+              onIrAActividad={irAActividad}
+            />
+          )}
 
           {loading && !estructura && <div className="animate-pulse h-32 bg-gray-200 rounded mb-4" />}
 
@@ -739,16 +801,30 @@ export default function GanttPage() {
                     </div>
                   ))}
 
-                  {itemsRender.map((item, filaIdx) => {
+                  {itemsVisibles.map((item, filaIdx) => {
                     const filaGrid = 4 + filaIdx;
                     if (item.kind === 'divisor') {
                       const estilo = ESTILOS_DIVISOR[item.nivel];
+                      // Hito automático de cierre de la funcionalidad: el día
+                      // más lejano marcado entre todas sus actividades.
+                      const cierreFunc = item.huIds ? hitoCierreFuncionalidad(item.huIds, marcas) : null;
+                      const colCierre = cierreFunc ? columnas.findIndex((c) => c.fecha === cierreFunc) : -1;
                       return (
-                        <div
-                          key={item.key}
-                          style={{ gridColumn: '1 / -1', gridRow: filaGrid, height: ALTO_FILA_DIVISOR }}
-                          className={`border ${estilo.celda}`}
-                        />
+                        <Fragment key={item.key}>
+                          <div
+                            style={{ gridColumn: '1 / -1', gridRow: filaGrid, height: ALTO_FILA_DIVISOR }}
+                            className={`border ${estilo.celda}`}
+                          />
+                          {colCierre >= 0 && (
+                            <div
+                              style={{ gridColumn: 1 + colCierre, gridRow: filaGrid, height: ALTO_FILA_DIVISOR }}
+                              title={`Cierre de la funcionalidad (hito automático): ${formatFechaCorta(cierreFunc!)}`}
+                              className="z-[1] flex items-center justify-center bg-blue-900 text-white text-[11px] font-bold border border-blue-950 cursor-help"
+                            >
+                              H
+                            </div>
+                          )}
+                        </Fragment>
                       );
                     }
 
@@ -760,21 +836,25 @@ export default function GanttPage() {
                       <Fragment key={`${fila.tipo}-${fila.id}`}>
                         {columnas.map((c, i) => {
                           const marca = marcas.get(claveMarca(fila.tipo, fila.id, c.fecha));
+                          const conflicto = analisis.celdas.get(claveMarca(fila.tipo, fila.id, c.fecha));
+                          const tituloBase = !planificadoAbierto
+                            ? 'Planificado cerrado — reactivalo para editar'
+                            : !modoAplica
+                            ? 'El modo activo no aplica a esta actividad'
+                            : marca === 'cierre'
+                            ? 'Hito: fecha comprometida'
+                            : undefined;
                           return (
                             <div
                               key={c.fecha}
                               onClick={() => modoAplica && handleClickCelda(fila, c.fecha)}
                               title={
-                                !planificadoAbierto
-                                  ? 'Planificado cerrado — reactivalo para editar'
-                                  : !modoAplica
-                                  ? 'El modo activo no aplica a esta actividad'
-                                  : marca === 'cierre'
-                                  ? 'Hito: fecha comprometida'
-                                  : undefined
+                                conflicto
+                                  ? `⚠️ Superposición:\n${conflicto.join('\n')}${tituloBase ? `\n\n${tituloBase}` : ''}`
+                                  : tituloBase
                               }
                               style={{ gridColumn: 1 + i, gridRow: filaGrid, height: ALTO_FILA_DATO }}
-                              className={`border border-slate-300 ${bordeGrupoDia(i)} ${
+                              className={`relative border border-slate-300 ${bordeGrupoDia(i)} ${
                                 c.esHoy ? 'border-l-4 border-r-4 border-l-purple-600 border-r-purple-600' : ''
                               } ${modoAplica ? 'cursor-pointer hover:opacity-70' : 'cursor-not-allowed'} ${
                                 !modoAplica
@@ -790,6 +870,10 @@ export default function GanttPage() {
                                 <div className={`w-full h-full flex items-center justify-center ${coloresMarca[marca]}`}>
                                   {marca === 'cierre' && <span className="text-white font-bold text-sm">H</span>}
                                 </div>
+                              )}
+                              {conflicto && (
+                                // Borde rojo encima de la marca: celda en conflicto.
+                                <span className="pointer-events-none absolute inset-0 border-[3px] border-red-600" />
                               )}
                             </div>
                           );
@@ -833,11 +917,12 @@ export default function GanttPage() {
 
                 <div style={{ position: 'absolute', top: ALTO_ENCABEZADO, left: 0, right: 0, bottom: 0, overflow: 'hidden' }}>
                   <div ref={panelFijoBodyRef}>
-                    {itemsRender.map((item) => {
+                    {itemsVisibles.map((item) => {
                       if (item.kind === 'divisor') {
                         const estilo = ESTILOS_DIVISOR[item.nivel];
                         const porcentajeGrupo =
                           item.diasGrupo != null ? calcularPorcentaje(item.diasGrupo, totalGeneral) : null;
+                        const cierreFunc = item.huIds ? hitoCierreFuncionalidad(item.huIds, marcas) : null;
                         return (
                           <div
                             key={item.key}
@@ -850,6 +935,14 @@ export default function GanttPage() {
                                 {' '}
                                 ({item.diasGrupo} día{item.diasGrupo === 1 ? '' : 's'}
                                 {porcentajeGrupo != null ? ` · ${porcentajeGrupo}%` : ''})
+                              </span>
+                            )}
+                            {cierreFunc && (
+                              <span
+                                title="Hito automático: el último día marcado entre todas las actividades de la funcionalidad"
+                                className="ml-2 px-1.5 py-0.5 rounded bg-blue-900 text-white text-[10px] font-bold"
+                              >
+                                H {formatFechaCorta(cierreFunc)}
                               </span>
                             )}
                           </div>
@@ -865,7 +958,9 @@ export default function GanttPage() {
                         <div
                           key={`${fila.tipo}-${fila.id}`}
                           style={{ display: 'flex', height: ALTO_FILA_DATO }}
-                          className="hover:bg-blue-50"
+                          className={`hover:bg-blue-50 ${
+                            filaResaltada === `${fila.tipo}-${fila.id}` ? 'relative z-10 ring-4 ring-inset ring-amber-400' : ''
+                          }`}
                         >
                           <div
                             style={{ width: ANCHO_H }}
@@ -891,6 +986,14 @@ export default function GanttPage() {
                                 {fila.esActividadCierre && (
                                   <span title="Actividad de cierre de la funcionalidad" className="mr-1">
                                     🏁
+                                  </span>
+                                )}
+                                {analisis.filas.has(`${fila.tipo}-${fila.id}`) && (
+                                  <span
+                                    title="Días en que algún talento asignado tiene otra actividad el mismo día"
+                                    className="mr-1 px-1 rounded bg-red-600 text-white text-[10px] font-bold"
+                                  >
+                                    ⚠️{analisis.filas.get(`${fila.tipo}-${fila.id}`)}
                                   </span>
                                 )}
                                 {fila.etiqueta}

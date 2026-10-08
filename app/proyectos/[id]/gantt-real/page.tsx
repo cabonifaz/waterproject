@@ -17,6 +17,8 @@ import Modal from '@/components/Modal';
 import FormularioImportarGanttExcel from '@/components/FormularioImportarGanttExcel';
 import ObservacionesModal from '@/components/ObservacionesModal';
 import AlertaSuperposiciones from '@/components/AlertaSuperposiciones';
+import { analizarSuperposiciones } from '@/lib/superposiciones';
+import { filtrarConDivisores } from '@/lib/ganttFiltro';
 import { EstructuraProyecto, Sprint, Feriado, Miembro, ObservacionInventario } from '@/types';
 import { calcularTotalesDias, calcularPorcentaje, totalDias, TOTALES_VACIOS } from '@/lib/planificacion';
 import { porcentaje as porcentajeCumplim, calcularSemaforo, topePorcentaje, Semaforo } from '@/lib/avanceCedula';
@@ -381,6 +383,8 @@ export default function GanttRealPage() {
   const [guardandoDiasRestantes, setGuardandoDiasRestantes] = useState(false);
   const [filtroHito, setFiltroHito] = useState<'todas' | 'con_hito' | 'sin_hito'>('todas');
   const [controlesAbiertos, setControlesAbiertos] = useState(true);
+  const [soloSuperpuestas, setSoloSuperpuestas] = useState(false);
+  const [filaResaltada, setFilaResaltada] = useState<string | null>(null);
 
   // Panel fijo (H/Actividad/Miembros) implementado como overlay absoluto en
   // vez de position:sticky — con ~60 filas x ~95 columnas, sticky se
@@ -480,29 +484,46 @@ export default function GanttRealPage() {
     [itemsRender]
   );
 
-  // "Con hito" = ya tiene marca de cierre real. "Sin hito" = todavía
-  // pendiente de completar. Los divisores (etapa/módulo/épica) solo se
-  // muestran si les queda al menos una fila visible después del filtro —
-  // van "pendientes" hasta que aparece la primera fila que matchea.
+  // Superposición de talentos sobre lo REAL, recalculada en vivo.
+  const analisis = useMemo(() => analizarSuperposiciones(filasConTalentos, marcas), [filasConTalentos, marcas]);
+
+  // Filtros: "Con hito" = ya tiene marca de cierre real, "Sin hito" =
+  // pendiente; "Solo superpuestas" = actividades en conflicto. Los
+  // divisores (etapa/módulo/épica) solo se muestran si les queda al menos
+  // una fila visible (ver lib/ganttFiltro.ts).
   const itemsFiltrados = useMemo(() => {
-    if (filtroHito === 'todas') return itemsRender;
-    const resultado: ItemRender[] = [];
-    let pendientes: Extract<ItemRender, { kind: 'divisor' }>[] = [];
-    for (const item of itemsRender) {
-      if (item.kind === 'divisor') {
-        if (item.nivel === 'etapa') pendientes = [item];
-        else if (item.nivel === 'modulo') pendientes = [...pendientes.filter((p) => p.nivel === 'etapa'), item];
-        else pendientes = [...pendientes.filter((p) => p.nivel !== 'epica'), item];
-        continue;
-      }
-      const coincide = filtroHito === 'con_hito' ? item.fila.fechaCierre != null : item.fila.fechaCierre == null;
-      if (coincide) {
-        resultado.push(...pendientes, item);
-        pendientes = [];
-      }
-    }
-    return resultado;
-  }, [itemsRender, filtroHito]);
+    const aplicaSuperpuestas = soloSuperpuestas && analisis.filas.size > 0;
+    if (filtroHito === 'todas' && !aplicaSuperpuestas) return itemsRender;
+    return filtrarConDivisores(itemsRender, (item) => {
+      const f = item.fila;
+      if (filtroHito === 'con_hito' && f.fechaCierre == null) return false;
+      if (filtroHito === 'sin_hito' && f.fechaCierre != null) return false;
+      return !aplicaSuperpuestas || analisis.filas.has(`${f.tipo}-${f.id}`);
+    });
+  }, [itemsRender, filtroHito, soloSuperpuestas, analisis]);
+
+  // Lleva el Gantt a la fila de una actividad (y a su primer día en
+  // conflicto) y la resalta unos segundos.
+  const irAActividad = (clave: string) => {
+    const idx = itemsFiltrados.findIndex((i) => i.kind === 'fila' && `${i.fila.tipo}-${i.fila.id}` === clave);
+    const contenedor = scrollRef.current;
+    if (idx < 0 || !contenedor) return;
+    const top = itemsFiltrados
+      .slice(0, idx)
+      .reduce((acc, i) => acc + (i.kind === 'divisor' ? ALTO_FILA_DIVISOR : ALTO_FILA_DATO), 0);
+    const primerDia = Array.from(analisis.celdas.keys())
+      .filter((k) => k.startsWith(`${clave}-`))
+      .map((k) => k.slice(k.length - 10))
+      .sort()[0];
+    const col = primerDia ? columnas.findIndex((c) => c.fecha === primerDia) : -1;
+    contenedor.scrollTo({
+      top: Math.max(0, top - 2 * ALTO_FILA_DATO),
+      left: col >= 0 ? Math.max(0, col * 44 - 132) : contenedor.scrollLeft,
+      behavior: 'smooth',
+    });
+    setFilaResaltada(clave);
+    window.setTimeout(() => setFilaResaltada((actual) => (actual === clave ? null : actual)), 3000);
+  };
   // Totales calculados directamente del mapa de marcas en vivo (no de
   // `estructura`) para que se actualicen al instante al marcar una celda,
   // sin necesitar recargar la página.
@@ -766,7 +787,15 @@ export default function GanttRealPage() {
               {error}
             </div>
           )}
-          {estructura && <AlertaSuperposiciones filas={filasConTalentos} marcas={marcas} contexto="real" />}
+          {estructura && (
+            <AlertaSuperposiciones
+              analisis={analisis}
+              contexto="real"
+              soloSuperpuestas={soloSuperpuestas}
+              onToggleSoloSuperpuestas={() => setSoloSuperpuestas((v) => !v)}
+              onIrAActividad={irAActividad}
+            />
+          )}
 
           {loading && <div className="animate-pulse h-32 bg-gray-200 rounded mb-4" />}
 
@@ -968,21 +997,25 @@ export default function GanttRealPage() {
                         {columnas.map((c, i) => {
                           const marca = marcas.get(claveMarca(fila.tipo, fila.id, c.fecha));
                           const marcaPlan = marcasPlanificadas.get(claveMarca(fila.tipo, fila.id, c.fecha));
+                          const conflicto = analisis.celdas.get(claveMarca(fila.tipo, fila.id, c.fecha));
+                          const tituloBase = !puedeEditar
+                            ? 'Cerrá el planificado para poder registrar el real'
+                            : !modoAplica
+                            ? 'El modo activo no aplica a esta actividad'
+                            : marcaPlan
+                            ? `Planificado: ${marcaPlan === 'cierre' ? 'hito (fecha comprometida)' : marcaPlan}`
+                            : undefined;
                           return (
                             <div
                               key={c.fecha}
                               onClick={() => modoAplica && handleClickCelda(fila, c.fecha)}
                               title={
-                                !puedeEditar
-                                  ? 'Cerrá el planificado para poder registrar el real'
-                                  : !modoAplica
-                                  ? 'El modo activo no aplica a esta actividad'
-                                  : marcaPlan
-                                  ? `Planificado: ${marcaPlan === 'cierre' ? 'hito (fecha comprometida)' : marcaPlan}`
-                                  : undefined
+                                conflicto
+                                  ? `⚠️ Superposición:\n${conflicto.join('\n')}${tituloBase ? `\n\n${tituloBase}` : ''}`
+                                  : tituloBase
                               }
                               style={{ gridColumn: 1 + i, gridRow: filaGrid, height: ALTO_FILA_DATO }}
-                              className={`border border-slate-300 ${bordeGrupoDia(i)} ${
+                              className={`relative border border-slate-300 ${bordeGrupoDia(i)} ${
                                 c.esHoy ? 'border-l-4 border-r-4 border-l-purple-600 border-r-purple-600' : ''
                               } ${
                                 modoAplica ? 'cursor-pointer hover:opacity-70' : 'cursor-not-allowed'
@@ -1000,6 +1033,10 @@ export default function GanttRealPage() {
                                 <div className={`w-full h-full flex items-center justify-center ${coloresMarca[marca]}`}>
                                   {marca === 'cierre' && <span className="text-white font-bold text-sm">H</span>}
                                 </div>
+                              )}
+                              {conflicto && (
+                                // Borde rojo encima de la marca: celda en conflicto.
+                                <span className="pointer-events-none absolute inset-0 border-[3px] border-red-600" />
                               )}
                             </div>
                           );
@@ -1083,7 +1120,13 @@ export default function GanttRealPage() {
                         : null;
 
                     return (
-                      <div key={`${fila.tipo}-${fila.id}`} style={{ display: 'flex', height: ALTO_FILA_DATO }} className="hover:bg-blue-50">
+                      <div
+                        key={`${fila.tipo}-${fila.id}`}
+                        style={{ display: 'flex', height: ALTO_FILA_DATO }}
+                        className={`hover:bg-blue-50 ${
+                          filaResaltada === `${fila.tipo}-${fila.id}` ? 'relative z-10 ring-4 ring-inset ring-amber-400' : ''
+                        }`}
+                      >
                         <div
                           style={{ width: ANCHO_H }}
                           className="h-full bg-white border flex items-center justify-center flex-shrink-0"
@@ -1124,6 +1167,14 @@ export default function GanttRealPage() {
                               {fila.esActividadCierre && (
                                 <span title="Actividad de cierre de la funcionalidad" className="mr-1">
                                   🏁
+                                </span>
+                              )}
+                              {analisis.filas.has(`${fila.tipo}-${fila.id}`) && (
+                                <span
+                                  title="Días en que algún talento asignado tiene otra actividad el mismo día"
+                                  className="mr-1 px-1 rounded bg-red-600 text-white text-[10px] font-bold"
+                                >
+                                  ⚠️{analisis.filas.get(`${fila.tipo}-${fila.id}`)}
                                 </span>
                               )}
                               {fila.etiqueta}

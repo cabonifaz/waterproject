@@ -45,6 +45,12 @@ const EpicaSeccion = ({ epica, miembrosProyecto, totalGeneral, idsHermanas, indi
   // Bloque "Cierre del módulo": siempre al final del módulo (sin ▲▼).
   const esCierreModulo = !!epica.es_cierre_modulo;
   const porcentajeEpica = calcularPorcentaje(diasEpica, totalGeneral);
+  // Hito automático de cierre de la funcionalidad: el último día planificado
+  // entre todas sus actividades, sin importar el tipo de marca.
+  const cierreFuncionalidad = epica.historias
+    .flatMap((h) => h.diasPlanificados.map((d) => String(d.fecha).slice(0, 10)))
+    .sort()
+    .pop();
 
   // Las HU comunes y las actividades de cierre se reordenan cada grupo por
   // separado: las de cierre siempre van al final de la funcionalidad.
@@ -110,6 +116,14 @@ const EpicaSeccion = ({ epica, miembrosProyecto, totalGeneral, idsHermanas, indi
               ({diasEpica} día{diasEpica === 1 ? '' : 's'}
               {porcentajeEpica != null ? ` · ${porcentajeEpica}%` : ''})
             </span>
+            {cierreFuncionalidad && (
+              <span
+                title="Hito automático de cierre: el último día planificado entre todas sus actividades"
+                className="ml-2 px-1.5 py-0.5 rounded bg-blue-900 text-white text-[10px] font-bold"
+              >
+                H {formatFechaCorta(cierreFuncionalidad)}
+              </span>
+            )}
           </h4>
         </button>
         <div className="flex items-center gap-2 flex-shrink-0">

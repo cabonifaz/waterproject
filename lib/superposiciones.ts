@@ -2,6 +2,8 @@
 // Detecta superposición de talentos: una misma persona asignada a dos o
 // más actividades que tienen marca (desarrollo/trabajo, certificación o
 // hito) el mismo día. Es solo informativo (alerta), no bloquea nada.
+// Además de "por persona", arma lo necesario para corregirlo desde el
+// Gantt: los pares de actividades en conflicto y qué celdas/filas resaltar.
 
 import { Miembro } from '@/types';
 
@@ -15,6 +17,42 @@ export interface FilaConTalentos {
   contexto?: string;
 }
 
+// Referencia a una actividad del Gantt: `clave` = "tipo-id" (la misma que
+// usan las filas), para poder saltar a ella.
+export interface ActividadRef {
+  clave: string;
+  etiqueta: string;
+}
+
+export interface DiaSuperpuesto {
+  fecha: string; // yyyy-mm-dd
+  actividades: ActividadRef[];
+}
+
+export interface SuperposicionMiembro {
+  miembro: Miembro;
+  dias: DiaSuperpuesto[];
+}
+
+// Dos actividades que comparten persona y día: lo que hay que mover o
+// reasignar para resolver la superposición.
+export interface ConflictoActividades {
+  a: ActividadRef;
+  b: ActividadRef;
+  miembros: string[]; // iniciales
+  fechas: string[]; // yyyy-mm-dd, ordenadas
+}
+
+export interface AnalisisSuperposiciones {
+  porMiembro: SuperposicionMiembro[];
+  conflictos: ConflictoActividades[];
+  // "tipo-id-yyyy-mm-dd" -> textos para el tooltip de la celda ("GM también en: ...").
+  celdas: Map<string, string[]>;
+  // "tipo-id" -> cantidad de días con superposición de esa actividad.
+  filas: Map<string, number>;
+  totalDias: number; // suma de días superpuestos por persona
+}
+
 function etiquetasDistinguibles(filas: FilaConTalentos[]): Map<string, string> {
   const usos = new Map<string, number>();
   for (const f of filas) usos.set(f.etiqueta, (usos.get(f.etiqueta) ?? 0) + 1);
@@ -26,18 +64,8 @@ function etiquetasDistinguibles(filas: FilaConTalentos[]): Map<string, string> {
   return resultado;
 }
 
-export interface DiaSuperpuesto {
-  fecha: string; // yyyy-mm-dd
-  actividades: string[];
-}
-
-export interface SuperposicionMiembro {
-  miembro: Miembro;
-  dias: DiaSuperpuesto[];
-}
-
 // `marcas`: mapa "tipo-id-yyyy-mm-dd" -> tipo_marca (el mismo que usan los Gantt).
-export function detectarSuperposiciones(filas: FilaConTalentos[], marcas: Map<string, string>): SuperposicionMiembro[] {
+export function analizarSuperposiciones(filas: FilaConTalentos[], marcas: Map<string, string>): AnalisisSuperposiciones {
   const fechasPorFila = new Map<string, string[]>();
   for (const key of marcas.keys()) {
     const filaKey = key.slice(0, key.length - 11); // quita "-yyyy-mm-dd"
@@ -49,33 +77,76 @@ export function detectarSuperposiciones(filas: FilaConTalentos[], marcas: Map<st
   const etiquetas = etiquetasDistinguibles(filas);
 
   // miembro -> fecha -> actividades
-  const porMiembro = new Map<number, { miembro: Miembro; dias: Map<string, string[]> }>();
+  const porMiembroMapa = new Map<number, { miembro: Miembro; dias: Map<string, ActividadRef[]> }>();
   for (const fila of filas) {
-    const etiqueta = etiquetas.get(`${fila.tipo}-${fila.id}`) ?? fila.etiqueta;
     if (fila.miembros.length === 0) continue;
-    const fechas = fechasPorFila.get(`${fila.tipo}-${fila.id}`);
+    const clave = `${fila.tipo}-${fila.id}`;
+    const fechas = fechasPorFila.get(clave);
     if (!fechas) continue;
+    const ref: ActividadRef = { clave, etiqueta: etiquetas.get(clave) ?? fila.etiqueta };
     for (const m of fila.miembros) {
-      let entrada = porMiembro.get(m.id);
+      let entrada = porMiembroMapa.get(m.id);
       if (!entrada) {
         entrada = { miembro: m, dias: new Map() };
-        porMiembro.set(m.id, entrada);
+        porMiembroMapa.set(m.id, entrada);
       }
       for (const fecha of fechas) {
         const acts = entrada.dias.get(fecha);
-        if (acts) acts.push(etiqueta);
-        else entrada.dias.set(fecha, [etiqueta]);
+        if (acts) acts.push(ref);
+        else entrada.dias.set(fecha, [ref]);
       }
     }
   }
 
-  const resultado: SuperposicionMiembro[] = [];
-  for (const { miembro, dias } of porMiembro.values()) {
-    const superpuestos = Array.from(dias.entries())
-      .filter(([, acts]) => acts.length > 1)
-      .map(([fecha, actividades]) => ({ fecha, actividades }))
-      .sort((a, b) => a.fecha.localeCompare(b.fecha));
-    if (superpuestos.length > 0) resultado.push({ miembro, dias: superpuestos });
+  const porMiembro: SuperposicionMiembro[] = [];
+  const celdas = new Map<string, string[]>();
+  const diasPorFila = new Map<string, Set<string>>();
+  const pares = new Map<string, { a: ActividadRef; b: ActividadRef; miembros: Set<string>; fechas: Set<string> }>();
+
+  for (const { miembro, dias } of porMiembroMapa.values()) {
+    const superpuestos: DiaSuperpuesto[] = [];
+    for (const [fecha, actividades] of dias) {
+      if (actividades.length < 2) continue;
+      superpuestos.push({ fecha, actividades });
+      for (const act of actividades) {
+        const otras = actividades.filter((o) => o.clave !== act.clave).map((o) => o.etiqueta);
+        const celda = `${act.clave}-${fecha}`;
+        celdas.set(celda, [...(celdas.get(celda) ?? []), `${miembro.iniciales} también en: ${otras.join(', ')}`]);
+        const set = diasPorFila.get(act.clave) ?? new Set<string>();
+        set.add(fecha);
+        diasPorFila.set(act.clave, set);
+      }
+      for (let i = 0; i < actividades.length; i++) {
+        for (let j = i + 1; j < actividades.length; j++) {
+          const [a, b] = [actividades[i], actividades[j]].sort((x, y) => x.clave.localeCompare(y.clave));
+          const parKey = `${a.clave}|${b.clave}`;
+          const par = pares.get(parKey) ?? { a, b, miembros: new Set<string>(), fechas: new Set<string>() };
+          par.miembros.add(miembro.iniciales);
+          par.fechas.add(fecha);
+          pares.set(parKey, par);
+        }
+      }
+    }
+    if (superpuestos.length > 0) {
+      superpuestos.sort((x, y) => x.fecha.localeCompare(y.fecha));
+      porMiembro.push({ miembro, dias: superpuestos });
+    }
   }
-  return resultado.sort((a, b) => b.dias.length - a.dias.length || a.miembro.iniciales.localeCompare(b.miembro.iniciales));
+
+  porMiembro.sort((a, b) => b.dias.length - a.dias.length || a.miembro.iniciales.localeCompare(b.miembro.iniciales));
+  const conflictos = Array.from(pares.values())
+    .map((p) => ({ a: p.a, b: p.b, miembros: Array.from(p.miembros).sort(), fechas: Array.from(p.fechas).sort() }))
+    .sort((x, y) => y.fechas.length - x.fechas.length || x.fechas[0].localeCompare(y.fechas[0]));
+
+  return {
+    porMiembro,
+    conflictos,
+    celdas,
+    filas: new Map(Array.from(diasPorFila, ([clave, fechas]) => [clave, fechas.size])),
+    totalDias: porMiembro.reduce((acc, s) => acc + s.dias.length, 0),
+  };
+}
+
+export function detectarSuperposiciones(filas: FilaConTalentos[], marcas: Map<string, string>): SuperposicionMiembro[] {
+  return analizarSuperposiciones(filas, marcas).porMiembro;
 }

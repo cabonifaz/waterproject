@@ -45,3 +45,19 @@ export function formatFechaCorta(fecha: string): string {
     year: 'numeric',
   });
 }
+
+// Hito AUTOMÁTICO de cierre de una funcionalidad (épica) en el planificado:
+// el día más lejano marcado entre todas sus actividades (HU), sin importar
+// el tipo de marca (desarrollo, certificación, hito o actividad de cierre).
+// `marcas`: mapa "hu-id-yyyy-mm-dd" -> tipo_marca de los Gantt. null = sin
+// días marcados todavía.
+export function hitoCierreFuncionalidad(huIds: number[], marcas: Map<string, string>): string | null {
+  const prefijos = huIds.map((id) => `hu-${id}-`);
+  let ultima: string | null = null;
+  for (const key of marcas.keys()) {
+    if (!prefijos.some((p) => key.startsWith(p))) continue;
+    const fecha = key.slice(key.length - 10);
+    if (ultima == null || fecha > ultima) ultima = fecha;
+  }
+  return ultima;
+}

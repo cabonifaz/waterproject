@@ -35,7 +35,9 @@ export interface ColumnaExcel {
 export type NivelDivisorExcel = 'etapa' | 'modulo' | 'epica';
 
 export type ItemExcel =
-  | { kind: 'divisor'; nivel: NivelDivisorExcel; label: string }
+  // fechaHito (solo épicas del planificado): hito automático de cierre de la
+  // funcionalidad, se dibuja como "H" en ese día de la fila de la épica.
+  | { kind: 'divisor'; nivel: NivelDivisorExcel; label: string; fechaHito?: string }
   | {
       kind: 'fila';
       tipo: string;
@@ -336,6 +338,15 @@ export async function exportarGanttComoExcel(opciones: ExportarGanttOpciones): P
       columnas.forEach((c, i) => {
         hoja.getCell(fila, COL_INICIO_DIAS + i).fill = fillSolido(c.esFeriado ? COLOR.celdaFeriado : COLOR.blanco);
       });
+      if (item.fechaHito) {
+        const i = columnas.findIndex((c) => c.fecha === item.fechaHito);
+        if (i >= 0) {
+          const celdaH = hoja.getCell(fila, COL_INICIO_DIAS + i);
+          celdaH.value = 'H'; // el formato condicional lo pinta como hito
+          celdaH.font = { bold: true, size: 8 };
+          celdaH.alignment = { horizontal: 'center', vertical: 'middle' };
+        }
+      }
       aplicarBordesDia(fila);
 
       hoja.getRow(fila).height = 15;
