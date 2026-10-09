@@ -587,9 +587,9 @@ export default function GanttRealPage() {
 
     setMarcas((prev) => {
       const next = new Map(prev);
-      // HU: hito único (marcar uno nuevo mueve el anterior). Las tareas
-      // matrices admiten varios hitos.
-      if (tipoEfectivo === 'cierre' && fila.tipo === 'hu') {
+      // HU de desarrollo: hito único (marcar uno nuevo mueve el anterior).
+      // Tareas matrices y actividades de cierre admiten varios hitos.
+      if (tipoEfectivo === 'cierre' && fila.tipo === 'hu' && !fila.esActividadCierre) {
         for (const k of Array.from(next.keys())) {
           if (k.startsWith(`${fila.tipo}-${fila.id}-`) && next.get(k) === 'cierre') next.delete(k);
         }

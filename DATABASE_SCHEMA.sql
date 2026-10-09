@@ -1198,25 +1198,32 @@ BEGIN
     DELETE FROM hu_dias_planificados
     WHERE historia_usuario_id = p_historia_usuario_id AND fecha = p_fecha;
   ELSE
-    IF p_tipo_marca = 'cierre' THEN
-      SELECT MAX(fecha) INTO v_max_fecha_trabajo
-      FROM hu_dias_planificados
-      WHERE historia_usuario_id = p_historia_usuario_id AND tipo_marca <> 'cierre';
+    -- Las actividades de cierre (Certificación, Desarrollo Seguro,
+    -- Aprobación de Champions, cierre de módulo...) funcionan como las
+    -- tareas matrices: varios hitos y días después de un hito; la
+    -- actividad cierra con su hito final. Las HU de desarrollo tienen un
+    -- único hito, siempre en su último día.
+    IF NOT (SELECT es_actividad_cierre FROM historias_usuario WHERE id = p_historia_usuario_id) THEN
+      IF p_tipo_marca = 'cierre' THEN
+        SELECT MAX(fecha) INTO v_max_fecha_trabajo
+        FROM hu_dias_planificados
+        WHERE historia_usuario_id = p_historia_usuario_id AND tipo_marca <> 'cierre';
 
-      IF v_max_fecha_trabajo IS NOT NULL AND v_max_fecha_trabajo > p_fecha THEN
-        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'El hito (fecha comprometida) debe quedar en el último día planificado de la HU.';
-      END IF;
+        IF v_max_fecha_trabajo IS NOT NULL AND v_max_fecha_trabajo > p_fecha THEN
+          SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'El hito (fecha comprometida) debe quedar en el último día planificado de la HU.';
+        END IF;
 
-      DELETE FROM hu_dias_planificados
-      WHERE historia_usuario_id = p_historia_usuario_id AND tipo_marca = 'cierre';
-    ELSE
-      SELECT fecha INTO v_fecha_cierre_actual
-      FROM hu_dias_planificados
-      WHERE historia_usuario_id = p_historia_usuario_id AND tipo_marca = 'cierre'
-      LIMIT 1;
+        DELETE FROM hu_dias_planificados
+        WHERE historia_usuario_id = p_historia_usuario_id AND tipo_marca = 'cierre';
+      ELSE
+        SELECT fecha INTO v_fecha_cierre_actual
+        FROM hu_dias_planificados
+        WHERE historia_usuario_id = p_historia_usuario_id AND tipo_marca = 'cierre'
+        LIMIT 1;
 
-      IF v_fecha_cierre_actual IS NOT NULL AND p_fecha > v_fecha_cierre_actual THEN
-        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'No se pueden planificar días después del hito (fecha comprometida) de la HU.';
+        IF v_fecha_cierre_actual IS NOT NULL AND p_fecha > v_fecha_cierre_actual THEN
+          SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'No se pueden planificar días después del hito (fecha comprometida) de la HU.';
+        END IF;
       END IF;
     END IF;
 
@@ -1480,25 +1487,30 @@ BEGIN
     DELETE FROM hu_dias_reales
     WHERE historia_usuario_id = p_historia_usuario_id AND fecha = p_fecha;
   ELSE
-    IF p_tipo_marca = 'cierre' THEN
-      SELECT MAX(fecha) INTO v_max_fecha_trabajo
-      FROM hu_dias_reales
-      WHERE historia_usuario_id = p_historia_usuario_id AND tipo_marca <> 'cierre';
+    -- Actividades de cierre: varios hitos y días después de un hito (la
+    -- actividad cierra cuando su último día marcado es un hito, ver
+    -- lib/hitos.ts). HU de desarrollo: hito único, siempre al final.
+    IF NOT (SELECT es_actividad_cierre FROM historias_usuario WHERE id = p_historia_usuario_id) THEN
+      IF p_tipo_marca = 'cierre' THEN
+        SELECT MAX(fecha) INTO v_max_fecha_trabajo
+        FROM hu_dias_reales
+        WHERE historia_usuario_id = p_historia_usuario_id AND tipo_marca <> 'cierre';
 
-      IF v_max_fecha_trabajo IS NOT NULL AND v_max_fecha_trabajo > p_fecha THEN
-        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'El hito de cierre real debe quedar en el último día real de la HU.';
-      END IF;
+        IF v_max_fecha_trabajo IS NOT NULL AND v_max_fecha_trabajo > p_fecha THEN
+          SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'El hito de cierre real debe quedar en el último día real de la HU.';
+        END IF;
 
-      DELETE FROM hu_dias_reales
-      WHERE historia_usuario_id = p_historia_usuario_id AND tipo_marca = 'cierre';
-    ELSE
-      SELECT fecha INTO v_fecha_cierre_actual
-      FROM hu_dias_reales
-      WHERE historia_usuario_id = p_historia_usuario_id AND tipo_marca = 'cierre'
-      LIMIT 1;
+        DELETE FROM hu_dias_reales
+        WHERE historia_usuario_id = p_historia_usuario_id AND tipo_marca = 'cierre';
+      ELSE
+        SELECT fecha INTO v_fecha_cierre_actual
+        FROM hu_dias_reales
+        WHERE historia_usuario_id = p_historia_usuario_id AND tipo_marca = 'cierre'
+        LIMIT 1;
 
-      IF v_fecha_cierre_actual IS NOT NULL AND p_fecha > v_fecha_cierre_actual THEN
-        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'No se pueden marcar días después del hito de cierre real de la HU.';
+        IF v_fecha_cierre_actual IS NOT NULL AND p_fecha > v_fecha_cierre_actual THEN
+          SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'No se pueden marcar días después del hito de cierre real de la HU.';
+        END IF;
       END IF;
     END IF;
 
@@ -1790,14 +1802,24 @@ BEGIN
     WHERE d.tipo_marca <> 'cierre'
     GROUP BY et.proyecto_id
   ) total_tm ON total_tm.proyecto_id = p.id
+  -- HU: cerrada = su último hito real es >= a su último día de trabajo
+  -- real (las actividades de cierre pueden tener varios hitos y días
+  -- después de un hito; cierran con su hito final).
   LEFT JOIN (
-    SELECT et.proyecto_id, COUNT(DISTINCT h.id) AS cerradas
-    FROM hu_dias_reales d
-    JOIN historias_usuario h ON d.historia_usuario_id = h.id
+    SELECT et.proyecto_id, COUNT(*) AS cerradas
+    FROM (
+      SELECT d.historia_usuario_id,
+             MAX(CASE WHEN d.tipo_marca = 'cierre' THEN d.fecha END) AS ultimo_hito,
+             MAX(CASE WHEN d.tipo_marca <> 'cierre' THEN d.fecha END) AS ultimo_trabajo
+      FROM hu_dias_reales d
+      GROUP BY d.historia_usuario_id
+    ) r
+    JOIN historias_usuario h ON r.historia_usuario_id = h.id
     JOIN epicas e ON h.epica_id = e.id
     JOIN modulos m ON e.modulo_id = m.id
     JOIN etapas et ON m.etapa_id = et.id AND et.activa = TRUE
-    WHERE d.tipo_marca = 'cierre'
+    WHERE r.ultimo_hito IS NOT NULL
+      AND (r.ultimo_trabajo IS NULL OR r.ultimo_hito >= r.ultimo_trabajo)
       AND EXISTS (
         SELECT 1 FROM hu_dias_planificados dp WHERE dp.historia_usuario_id = h.id AND dp.tipo_marca <> 'cierre'
       )

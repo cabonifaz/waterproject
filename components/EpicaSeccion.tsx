@@ -174,7 +174,8 @@ const EpicaSeccion = ({ epica, miembrosProyecto, totalGeneral, idsHermanas, indi
               {epica.historias.map((h) => {
                 const diasDev = h.diasPlanificados.filter((d) => d.tipo_marca === 'desarrollo').length;
                 const diasCert = h.diasPlanificados.filter((d) => d.tipo_marca === 'certificacion').length;
-                const hito = fechasHito(h.diasPlanificados)[0];
+                // Las actividades de cierre pueden tener varios hitos (cierra con el último).
+                const hitos = fechasHito(h.diasPlanificados);
                 const grupo = h.es_actividad_cierre ? idsCierre : idsComunes;
                 return (
                   <tr
@@ -188,12 +189,16 @@ const EpicaSeccion = ({ epica, miembrosProyecto, totalGeneral, idsHermanas, indi
                       </div>
                     </td>
                     <td className="px-2 py-2 text-center">
-                      {hito && (
+                      {hitos.length > 0 && (
                         <span
-                          title={`Fecha comprometida: ${formatFechaCorta(hito)}`}
-                          className="inline-flex items-center justify-center w-5 h-5 bg-blue-700 text-white text-[10px] font-bold rounded cursor-help"
+                          title={
+                            hitos.length > 1
+                              ? `Hitos: ${hitos.map(formatFechaCorta).join(', ')} — hito final: ${formatFechaCorta(hitos[hitos.length - 1])}`
+                              : `Fecha comprometida: ${formatFechaCorta(hitos[0])}`
+                          }
+                          className="inline-flex items-center justify-center min-w-[20px] h-5 px-0.5 bg-blue-700 text-white text-[10px] font-bold rounded cursor-help"
                         >
-                          H
+                          H{hitos.length > 1 ? `×${hitos.length}` : ''}
                         </span>
                       )}
                     </td>

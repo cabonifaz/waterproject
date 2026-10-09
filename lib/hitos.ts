@@ -4,10 +4,12 @@
 //   - Planificado: fecha COMPROMETIDA. No implica que la actividad esté
 //     cerrada — nunca se usa para el estado "Cerrada".
 //   - Real: hito alcanzado. Es lo único que define si una actividad cerró.
-// Las HU tienen un único hito (siempre el último día). Las tareas
-// matrices (Análisis y Diseño, Cierre, ...) pueden tener varios, en
-// cualquier día: la tarea se considera cerrada cuando su último día
-// marcado en el real es un hito.
+// Las HU de desarrollo tienen un único hito (siempre el último día). Las
+// tareas matrices (Análisis y Diseño, Cierre, ...) y las actividades de
+// cierre (Certificación, Desarrollo Seguro, Aprobación de Champions,
+// cierre de módulo...) pueden tener varios, en cualquier día, y días
+// después de un hito: se consideran cerradas cuando su último día marcado
+// en el real es un hito (el hito final).
 
 interface Marca {
   fecha: string;
