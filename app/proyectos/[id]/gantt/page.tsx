@@ -42,6 +42,7 @@ interface FilaGantt {
   contexto: string;
   marcasPermitidas: string[];
   esActividadCierre?: boolean; // HU de cierre obligatoria de la funcionalidad
+  funcionalidadId?: number; // épica de la HU (para la superposición de talentos)
   miembros: Miembro[];
   diasPropios?: number; // solo tareas matrices: días de "trabajo" marcados, para el "(N días · %)" del título
 }
@@ -190,6 +191,7 @@ function construirItemsRender(estructura: EstructuraProyecto): ItemRender[] {
               contexto: `${etapa.nombre} / ${modulo.nombre} / ${epica.nombre}`,
               marcasPermitidas: ['desarrollo', 'certificacion', 'cierre'],
               esActividadCierre: !!h.es_actividad_cierre,
+              funcionalidadId: epica.id,
               miembros: h.miembros,
             },
           });

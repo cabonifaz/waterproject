@@ -70,6 +70,9 @@ interface Actividad {
   etiqueta: string;
   miembros: Miembro[];
   fechas: string[];
+  // Para "días superpuestos": solo HU de desarrollo (no tareas matrices ni
+  // actividades de cierre) y solo entre funcionalidades distintas.
+  funcionalidad: string | null; // null = no cuenta para superposición
 }
 
 function actividadesDe(fuente: FuenteCarga, campo: CampoCarga): Actividad[] {
@@ -82,6 +85,7 @@ function actividadesDe(fuente: FuenteCarga, campo: CampoCarga): Actividad[] {
         grupo: etapa.nombre,
         etiqueta: t.titulo,
         miembros: t.miembros,
+        funcionalidad: null,
         fechas: t[campo].map((d) => String(d.fecha).slice(0, 10)),
       });
     }
@@ -96,6 +100,7 @@ function actividadesDe(fuente: FuenteCarga, campo: CampoCarga): Actividad[] {
             etiqueta:
               (h.codigo ? `${h.codigo} — ` : '') + h.titulo + (h.es_actividad_cierre ? ` (${epica.nombre})` : ''),
             miembros: h.miembros,
+            funcionalidad: h.es_actividad_cierre ? null : `${proyecto}|${epica.id}`,
             fechas: h[campo].map((d) => String(d.fecha).slice(0, 10)),
           });
         }
@@ -113,7 +118,13 @@ export function calcularCargaEquipo(fuentes: FuenteCarga[], sprints: Sprint[], c
   type Acumulado = Map<string, { acts: Set<string>; fechas: Set<string> }>;
   const porPersona = new Map<
     string,
-    CargaPersona & { _acts: Set<string>; _modulo: Acumulado; _sprint: Acumulado; _proyecto: Acumulado }
+    CargaPersona & {
+      _acts: Set<string>;
+      _modulo: Acumulado;
+      _sprint: Acumulado;
+      _proyecto: Acumulado;
+      _funcPorFecha: Map<string, Set<string>>; // fecha -> funcionalidades con HU ese día
+    }
   >();
   const modulos: string[] = [];
   let actividadesSinAsignar = 0;
@@ -152,11 +163,19 @@ export function calcularCargaEquipo(fuentes: FuenteCarga[], sprints: Sprint[], c
             _modulo: new Map(),
             _sprint: new Map(),
             _proyecto: new Map(),
+            _funcPorFecha: new Map(),
           };
           porPersona.set(clave, p);
         }
         if (!p.proyectos.includes(act.proyecto)) p.proyectos.push(act.proyecto);
         p._acts.add(idActividad);
+        if (act.funcionalidad) {
+          for (const f of act.fechas) {
+            const set = p._funcPorFecha.get(f) ?? new Set<string>();
+            set.add(act.funcionalidad);
+            p._funcPorFecha.set(f, set);
+          }
+        }
 
         const sumar = (acc: Acumulado, key: string, fecha: string) => {
           let r = acc.get(key);
@@ -182,7 +201,7 @@ export function calcularCargaEquipo(fuentes: FuenteCarga[], sprints: Sprint[], c
   const resumir = (acc: Acumulado) =>
     new Map(Array.from(acc.entries()).map(([k, v]) => [k, { actividades: v.acts.size, dias: v.fechas.size }]));
 
-  const personas = Array.from(porPersona.values()).map(({ _acts, _modulo, _sprint, _proyecto, ...p }) => {
+  const personas = Array.from(porPersona.values()).map(({ _acts, _modulo, _sprint, _proyecto, _funcPorFecha, ...p }) => {
     const fechas = Array.from(p.cargaPorFecha.keys()).sort();
     return {
       ...p,
@@ -191,7 +210,8 @@ export function calcularCargaEquipo(fuentes: FuenteCarga[], sprints: Sprint[], c
       porProyecto: resumir(_proyecto),
       actividades: _acts.size,
       diasOcupados: fechas.length,
-      diasSuperpuestos: fechas.filter((f) => (p.cargaPorFecha.get(f)?.length ?? 0) > 1).length,
+      // Mismo criterio que la alerta de los Gantt (lib/superposiciones.ts).
+      diasSuperpuestos: Array.from(_funcPorFecha.values()).filter((s) => s.size > 1).length,
       primeraFecha: fechas[0] ?? null,
       ultimaFecha: fechas[fechas.length - 1] ?? null,
     };

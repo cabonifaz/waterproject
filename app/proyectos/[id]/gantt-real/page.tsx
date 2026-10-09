@@ -35,6 +35,7 @@ interface FilaGantt {
   fechaCierre?: string; // cierre efectivo (real): la actividad está cerrada
   fechasHito?: string[]; // todos los hitos reales (las tareas matrices pueden tener varios)
   esActividadCierre?: boolean; // HU de cierre obligatoria de la funcionalidad
+  funcionalidadId?: number; // épica de la HU (para la superposición de talentos)
   miembros: Miembro[];
   diasPropios?: number;
   diasPlanificadosPropios?: number;
@@ -274,6 +275,7 @@ function construirItemsRender(estructura: EstructuraProyecto, indexReal: IndiceM
               fechaCierre: calc.fechaCierre,
               fechasHito: calc.fechasHito,
               esActividadCierre: !!h.es_actividad_cierre,
+              funcionalidadId: epica.id,
               miembros: h.miembros,
               diasPropios: calc.diasReales,
               diasPlanificadosPropios: calc.diasPlanificados,

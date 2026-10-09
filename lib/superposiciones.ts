@@ -1,7 +1,12 @@
 // lib/superposiciones.ts
-// Detecta superposición de talentos: una misma persona asignada a dos o
-// más actividades que tienen marca (desarrollo/trabajo, certificación o
-// hito) el mismo día. Es solo informativo (alerta), no bloquea nada.
+// Detecta superposición de talentos: un mismo desarrollador con historias
+// de usuario de DISTINTAS funcionalidades marcadas el mismo día. Es solo
+// informativo (alerta), no bloquea nada. Reglas:
+//   - Solo cuentan las HU "de desarrollo": no las tareas matrices ni las
+//     actividades de cierre de la funcionalidad (Certificación, Desarrollo
+//     Seguro, Aprobación de Champions...).
+//   - Dos HU de la MISMA funcionalidad el mismo día no son superposición
+//     (se trabajan juntas).
 // Además de "por persona", arma lo necesario para corregirlo desde el
 // Gantt: los pares de actividades en conflicto y qué celdas/filas resaltar.
 
@@ -15,13 +20,20 @@ export interface FilaConTalentos {
   // "Etapa / Módulo / Épica": si dos actividades se llaman igual (ej.
   // "Certificación" de distintas funcionalidades) se aclara la última parte.
   contexto?: string;
+  funcionalidadId?: number; // épica de la HU
+  esActividadCierre?: boolean;
 }
+
+// ¿Esta actividad entra en el control de superposición?
+export const cuentaParaSuperposicion = (f: Pick<FilaConTalentos, 'tipo' | 'esActividadCierre'>) =>
+  f.tipo === 'hu' && !f.esActividadCierre;
 
 // Referencia a una actividad del Gantt: `clave` = "tipo-id" (la misma que
 // usan las filas), para poder saltar a ella.
 export interface ActividadRef {
   clave: string;
   etiqueta: string;
+  funcionalidad: string; // para no contar como conflicto dos HU de la misma funcionalidad
 }
 
 export interface DiaSuperpuesto {
@@ -79,11 +91,16 @@ export function analizarSuperposiciones(filas: FilaConTalentos[], marcas: Map<st
   // miembro -> fecha -> actividades
   const porMiembroMapa = new Map<number, { miembro: Miembro; dias: Map<string, ActividadRef[]> }>();
   for (const fila of filas) {
-    if (fila.miembros.length === 0) continue;
+    if (fila.miembros.length === 0 || !cuentaParaSuperposicion(fila)) continue;
     const clave = `${fila.tipo}-${fila.id}`;
     const fechas = fechasPorFila.get(clave);
     if (!fechas) continue;
-    const ref: ActividadRef = { clave, etiqueta: etiquetas.get(clave) ?? fila.etiqueta };
+    const ref: ActividadRef = {
+      clave,
+      etiqueta: etiquetas.get(clave) ?? fila.etiqueta,
+      // Sin épica conocida, cada actividad es su propio grupo.
+      funcionalidad: fila.funcionalidadId != null ? String(fila.funcionalidadId) : clave,
+    };
     for (const m of fila.miembros) {
       let entrada = porMiembroMapa.get(m.id);
       if (!entrada) {
@@ -106,10 +123,12 @@ export function analizarSuperposiciones(filas: FilaConTalentos[], marcas: Map<st
   for (const { miembro, dias } of porMiembroMapa.values()) {
     const superpuestos: DiaSuperpuesto[] = [];
     for (const [fecha, actividades] of dias) {
-      if (actividades.length < 2) continue;
+      // Solo hay conflicto si ese día tiene HU de 2 o más funcionalidades;
+      // y cada actividad choca solo con las de OTRAS funcionalidades.
+      if (new Set(actividades.map((a) => a.funcionalidad)).size < 2) continue;
       superpuestos.push({ fecha, actividades });
       for (const act of actividades) {
-        const otras = actividades.filter((o) => o.clave !== act.clave).map((o) => o.etiqueta);
+        const otras = actividades.filter((o) => o.funcionalidad !== act.funcionalidad).map((o) => o.etiqueta);
         const celda = `${act.clave}-${fecha}`;
         celdas.set(celda, [...(celdas.get(celda) ?? []), `${miembro.iniciales} también en: ${otras.join(', ')}`]);
         const set = diasPorFila.get(act.clave) ?? new Set<string>();
@@ -118,6 +137,7 @@ export function analizarSuperposiciones(filas: FilaConTalentos[], marcas: Map<st
       }
       for (let i = 0; i < actividades.length; i++) {
         for (let j = i + 1; j < actividades.length; j++) {
+          if (actividades[i].funcionalidad === actividades[j].funcionalidad) continue;
           const [a, b] = [actividades[i], actividades[j]].sort((x, y) => x.clave.localeCompare(y.clave));
           const parKey = `${a.clave}|${b.clave}`;
           const par = pares.get(parKey) ?? { a, b, miembros: new Set<string>(), fechas: new Set<string>() };

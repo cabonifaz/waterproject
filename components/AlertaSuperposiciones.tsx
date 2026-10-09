@@ -1,6 +1,7 @@
 // components/AlertaSuperposiciones.tsx
-// Aviso (solo informativo) de superposición de talentos en un Gantt: una
-// persona con más de una actividad marcada el mismo día. "Ver detalle"
+// Aviso (solo informativo) de superposición de talentos en un Gantt: un
+// desarrollador con HU de distintas funcionalidades el mismo día (reglas
+// en lib/superposiciones.ts). "Ver detalle"
 // abre el listado por pares de actividades en conflicto (lo que hay que
 // mover o reasignar) o por persona; cada actividad lleva a su fila del
 // Gantt. "Solo superpuestas" deja en el Gantt únicamente esas actividades.
@@ -59,8 +60,8 @@ const AlertaSuperposiciones = ({ analisis, contexto, soloSuperpuestas, onToggleS
       <div className="mb-4 bg-amber-50 border border-amber-300 text-amber-900 px-4 py-2 rounded-lg text-sm flex items-center justify-between gap-3 flex-wrap">
         <span>
           ⚠️ <strong>Superposición de talentos ({contexto}):</strong>{' '}
-          {porMiembro.length === 1 ? '1 persona tiene' : `${porMiembro.length} personas tienen`} más de una
-          actividad el mismo día ({totalDias} día{totalDias === 1 ? '' : 's'} en total, {conflictos.length} par
+          {porMiembro.length === 1 ? '1 desarrollador tiene' : `${porMiembro.length} desarrolladores tienen`} historias
+          de distintas funcionalidades el mismo día ({totalDias} día{totalDias === 1 ? '' : 's'} en total, {conflictos.length} par
           {conflictos.length === 1 ? '' : 'es'} de actividades) — {porMiembro.map((s) => s.miembro.iniciales).join(', ')}.
           Las celdas en conflicto se ven con borde rojo.
         </span>
@@ -88,8 +89,10 @@ const AlertaSuperposiciones = ({ analisis, contexto, soloSuperpuestas, onToggleS
         <Modal titulo="⚠️ Superposición de talentos" onClose={() => setAbierto(false)} ancho="max-w-3xl">
           <div className="space-y-4 text-sm">
             <p className="text-gray-500">
-              Días en que una misma persona tiene más de una actividad marcada en el {contexto}. Es solo un aviso:
-              podés dejarlo así, reasignar o mover días. Tocá una actividad para ir a su fila en el Gantt.
+              Días en que un mismo desarrollador tiene historias de usuario de funcionalidades distintas marcadas en
+              el {contexto}. No cuentan las HU de una misma funcionalidad, ni las tareas matrices ni las actividades
+              de cierre (Certificación, Desarrollo Seguro, Aprobación de Champions…). Es solo un aviso: podés dejarlo
+              así, reasignar o mover días. Tocá una actividad para ir a su fila en el Gantt.
             </p>
             <div className="flex gap-2">
               {(

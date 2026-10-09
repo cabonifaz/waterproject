@@ -175,7 +175,7 @@ const CargaEquipoVista = ({ fuentes, sprints }: Props) => {
                     {variosProyectos && <th className="border px-2 py-2 text-left">Proyectos</th>}
                     <th className="border px-2 py-2 text-center">Actividades</th>
                     <th className="border px-2 py-2 text-center">Días ocupados</th>
-                    <th className="border px-2 py-2 text-center" title="Días con 2 o más actividades a la vez">
+                    <th className="border px-2 py-2 text-center" title="Días con historias de usuario de 2 o más funcionalidades distintas (no cuentan tareas matrices ni actividades de cierre)">
                       Días superpuestos
                     </th>
                     <th className="border px-2 py-2 text-center">Primera tarea</th>
