@@ -72,6 +72,9 @@ export interface Miembro {
   proyecto_id: number;
   nombre: string;
   iniciales: string;
+  // Talento "cross" (arquitecto, QA, líder técnico...): trabaja a propósito
+  // en varias funcionalidades a la vez, no genera alertas de superposición.
+  es_cross?: boolean | number;
   created_at: Date;
 }
 

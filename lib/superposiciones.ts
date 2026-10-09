@@ -7,6 +7,7 @@
 //     Seguro, Aprobación de Champions...).
 //   - Dos HU de la MISMA funcionalidad el mismo día no son superposición
 //     (se trabajan juntas).
+//   - Los talentos "cross" (miembros_proyecto.es_cross) no generan alertas.
 // Además de "por persona", arma lo necesario para corregirlo desde el
 // Gantt: los pares de actividades en conflicto y qué celdas/filas resaltar.
 
@@ -102,6 +103,7 @@ export function analizarSuperposiciones(filas: FilaConTalentos[], marcas: Map<st
       funcionalidad: fila.funcionalidadId != null ? String(fila.funcionalidadId) : clave,
     };
     for (const m of fila.miembros) {
+      if (m.es_cross) continue; // talento cross: no genera alertas
       let entrada = porMiembroMapa.get(m.id);
       if (!entrada) {
         entrada = { miembro: m, dias: new Map() };

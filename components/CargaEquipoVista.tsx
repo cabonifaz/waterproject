@@ -85,6 +85,14 @@ const CargaEquipoVista = ({ fuentes, sprints }: Props) => {
   const nombrePersona = (p: CargaPersona) => (
     <span>
       <strong>{p.iniciales}</strong> <span className="text-gray-600">{p.nombre}</span>
+      {p.esCross && (
+        <span
+          title="Talento cross: trabaja en varias funcionalidades a la vez, no se cuentan superposiciones"
+          className="ml-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-violet-600 text-white"
+        >
+          Cross
+        </span>
+      )}
     </span>
   );
 

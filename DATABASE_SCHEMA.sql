@@ -281,6 +281,11 @@ CREATE TABLE IF NOT EXISTS miembros_proyecto (
   UNIQUE KEY uq_proyecto_iniciales (proyecto_id, iniciales)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Talento "cross": trabaja a propósito en varias funcionalidades a la vez
+-- (ej. arquitecto, QA, líder técnico), así que no genera alertas de
+-- superposición de tareas.
+ALTER TABLE miembros_proyecto ADD COLUMN es_cross BOOLEAN NOT NULL DEFAULT FALSE AFTER iniciales;
+
 -- Asignación de miembros a actividades: N:M (una HU/tarea matriz puede
 -- tener varios miembros, ej. "LR/HB").
 CREATE TABLE IF NOT EXISTS hu_miembros (
@@ -1329,6 +1334,20 @@ CREATE PROCEDURE sp_listar_miembros_proyecto (
 )
 BEGIN
   SELECT * FROM miembros_proyecto WHERE proyecto_id = p_proyecto_id ORDER BY nombre;
+END$$
+DELIMITER ;
+
+-- Marca / desmarca a un talento como "cross" (no genera alertas de
+-- superposición de tareas).
+DROP PROCEDURE IF EXISTS sp_marcar_miembro_cross;
+DELIMITER $$
+CREATE PROCEDURE sp_marcar_miembro_cross (
+  IN p_id INT,
+  IN p_es_cross BOOLEAN
+)
+BEGIN
+  UPDATE miembros_proyecto SET es_cross = p_es_cross WHERE id = p_id;
+  SELECT * FROM miembros_proyecto WHERE id = p_id;
 END$$
 DELIMITER ;
 

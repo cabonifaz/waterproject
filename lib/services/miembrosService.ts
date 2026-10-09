@@ -23,6 +23,12 @@ export async function listarMiembrosProyecto(proyectoId: number): Promise<Miembr
   return executeProcedure<Miembro>('sp_listar_miembros_proyecto', [proyectoId]);
 }
 
+// Talento "cross": no genera alertas de superposición de tareas.
+export async function marcarMiembroCross(id: number, esCross: boolean): Promise<Miembro> {
+  const rows = await executeProcedure<Miembro>('sp_marcar_miembro_cross', [id, esCross]);
+  return rows[0];
+}
+
 export async function eliminarMiembro(id: number): Promise<void> {
   await executeProcedure('sp_eliminar_miembro', [id]);
 }

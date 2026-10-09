@@ -24,6 +24,7 @@ export interface CargaPersona {
   clave: string;
   nombre: string;
   iniciales: string;
+  esCross: boolean; // talento cross: no se cuentan días superpuestos
   proyectos: string[];
   actividades: number;
   diasOcupados: number; // fechas distintas con al menos una actividad
@@ -149,6 +150,7 @@ export function calcularCargaEquipo(fuentes: FuenteCarga[], sprints: Sprint[], c
             clave,
             nombre: m.nombre,
             iniciales: m.iniciales,
+            esCross: false,
             proyectos: [],
             actividades: 0,
             diasOcupados: 0,
@@ -168,8 +170,9 @@ export function calcularCargaEquipo(fuentes: FuenteCarga[], sprints: Sprint[], c
           porPersona.set(clave, p);
         }
         if (!p.proyectos.includes(act.proyecto)) p.proyectos.push(act.proyecto);
+        if (m.es_cross) p.esCross = true; // cross en algún proyecto del PI => cross
         p._acts.add(idActividad);
-        if (act.funcionalidad) {
+        if (act.funcionalidad && !m.es_cross) {
           for (const f of act.fechas) {
             const set = p._funcPorFecha.get(f) ?? new Set<string>();
             set.add(act.funcionalidad);
@@ -211,7 +214,7 @@ export function calcularCargaEquipo(fuentes: FuenteCarga[], sprints: Sprint[], c
       actividades: _acts.size,
       diasOcupados: fechas.length,
       // Mismo criterio que la alerta de los Gantt (lib/superposiciones.ts).
-      diasSuperpuestos: Array.from(_funcPorFecha.values()).filter((s) => s.size > 1).length,
+      diasSuperpuestos: p.esCross ? 0 : Array.from(_funcPorFecha.values()).filter((s) => s.size > 1).length,
       primeraFecha: fechas[0] ?? null,
       ultimaFecha: fechas[fechas.length - 1] ?? null,
     };
