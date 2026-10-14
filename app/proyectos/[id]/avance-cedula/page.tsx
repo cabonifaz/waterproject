@@ -12,7 +12,13 @@ import { useParams } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import Modal from '@/components/Modal';
 import { EstructuraProyecto, CorteAvance, DetalleCorteAvance, FilaAvanceCedula } from '@/types';
-import { construirFilasAvanceCedula, calcularFilasConPorcentajes, Semaforo } from '@/lib/avanceCedula';
+import {
+  construirFilasAvanceCedula,
+  calcularFilasConPorcentajes,
+  construirVistaAvance,
+  Semaforo,
+  VistaAvance,
+} from '@/lib/avanceCedula';
 import { exportarAvanceCedulaComoExcel } from '@/lib/exportarAvanceCedulaExcel';
 
 interface Historico {
@@ -76,6 +82,7 @@ export default function AvanceCedulaPage() {
   const [mostrarConfirmacion, setMostrarConfirmacion] = useState(false);
   const [guardando, setGuardando] = useState(false);
   const [exportando, setExportando] = useState(false);
+  const [vista, setVista] = useState<VistaAvance>('proyecto');
 
   const cargar = useCallback(async () => {
     try {
@@ -101,24 +108,49 @@ export default function AvanceCedulaPage() {
     cargar();
   }, [cargar]);
 
+  // Filas "crudas" (sin subtotales): son las que se guardan en el corte.
   const filasVivoCrudas = useMemo(() => (estructura ? construirFilasAvanceCedula(estructura) : []), [estructura]);
-  const { filas, totales } = useMemo(() => calcularFilasConPorcentajes(filasVivoCrudas), [filasVivoCrudas]);
+
+  // Módulos del proyecto (para el selector de vista).
+  const modulos = useMemo(
+    () =>
+      (estructura?.etapas ?? []).flatMap((e) => e.modulos.map((m) => ({ id: m.id, nombre: m.nombre }))),
+    [estructura]
+  );
+  const nombreTotal =
+    vista === 'proyecto'
+      ? '% Total de Avance del Proyecto'
+      : vista === 'modulos'
+      ? '% Total de Avance de los Módulos'
+      : `% Avance del Módulo ${modulos.find((m) => m.id === vista)?.nombre ?? ''}`;
+
+  const { filas, totales } = useMemo(() => {
+    const r = calcularFilasConPorcentajes(construirVistaAvance(filasVivoCrudas, vista));
+    return { filas: r.filas, totales: { ...r.totales, nombre: nombreTotal } };
+  }, [filasVivoCrudas, vista, nombreTotal]);
+
+  // Corte anterior calculado sobre la MISMA vista (mismas filas y mismo
+  // denominador), para que el Δ sea comparable. El detalle guardado no
+  // tiene el módulo de cada épica: se toma de la estructura actual.
+  const anteriorEnVista = useMemo(() => {
+    if (!historico?.detalleAnterior?.length) return null;
+    const moduloDeEpica = new Map(
+      filasVivoCrudas.filter((f) => f.tipo === 'epica').map((f) => [f.referenciaId, f] as const)
+    );
+    const anteriores = detalleAFilas(historico.detalleAnterior).map((f) => {
+      const actual = f.tipo === 'epica' ? moduloDeEpica.get(f.referenciaId) : undefined;
+      return actual ? { ...f, moduloId: actual.moduloId, moduloNombre: actual.moduloNombre } : f;
+    });
+    return calcularFilasConPorcentajes(construirVistaAvance(anteriores, vista));
+  }, [historico, filasVivoCrudas, vista]);
 
   const avanceRealAnteriorPorFila = useMemo(() => {
     const mapa = new Map<string, number | null>();
-    if (!historico?.detalleAnterior?.length) return mapa;
-    const { filas: filasAnterior } = calcularFilasConPorcentajes(detalleAFilas(historico.detalleAnterior));
-    for (const f of filasAnterior) {
-      mapa.set(claveFila(f.tipo, f.referenciaId), f.porcentajeAvanceReal);
-    }
+    for (const f of anteriorEnVista?.filas ?? []) mapa.set(claveFila(f.tipo, f.referenciaId), f.porcentajeAvanceReal);
     return mapa;
-  }, [historico]);
+  }, [anteriorEnVista]);
 
-  const totalAvanceRealAnterior = useMemo(() => {
-    if (!historico?.detalleAnterior?.length) return null;
-    const { totales: totalesAnterior } = calcularFilasConPorcentajes(detalleAFilas(historico.detalleAnterior));
-    return totalesAnterior.porcentajeAvanceReal;
-  }, [historico]);
+  const totalAvanceRealAnterior = anteriorEnVista ? anteriorEnVista.totales.porcentajeAvanceReal : null;
 
   const handleCerrarCorte = async () => {
     setGuardando(true);
@@ -168,7 +200,10 @@ export default function AvanceCedulaPage() {
     try {
       await exportarAvanceCedulaComoExcel({
         nombreArchivo: `Avance-Celula-${estructura.proyecto.nombre}-${historico.hoy.slice(0, 10)}`.replace(/[^\w-]+/g, '_'),
-        titulo: `Avance Célula — ${estructura.proyecto.nombre} — corte ${formatFecha(historico.hoy)}`,
+        // Vista exportada (proyecto completo, todos los módulos o un módulo).
+        titulo: `Avance Célula — ${estructura.proyecto.nombre}${
+          vista === 'proyecto' ? '' : ` — ${nombreTotal.replace(/^% (Total de )?Avance (de los |del )?/, '')}`
+        } — corte ${formatFecha(historico.hoy)}`,
         filas,
         totalNombre: totales.nombre,
         deltas: filas.map((f) => calcularDelta(f.porcentajeAvanceReal, claveFila(f.tipo, f.referenciaId))),
@@ -273,6 +308,38 @@ export default function AvanceCedulaPage() {
                 </button>
               </div>
 
+              {modulos.length > 0 && (
+                <div className="mb-4 bg-white rounded-lg shadow px-4 py-3 flex items-center gap-2 flex-wrap">
+                  <span className="text-sm text-gray-500 mr-1">Ver avance:</span>
+                  {(
+                    [
+                      ['proyecto', '📋 Proyecto completo'],
+                      ...(modulos.length > 1 ? ([['modulos', '📦 Todos los módulos']] as const) : []),
+                      ...modulos.map((m) => [m.id, `📦 ${m.nombre}`] as const),
+                    ] as [VistaAvance, string][]
+                  ).map(([valor, label]) => (
+                    <button
+                      key={String(valor)}
+                      onClick={() => setVista(valor)}
+                      className={`px-3 py-1.5 rounded-lg text-sm font-semibold border-2 ${
+                        vista === valor
+                          ? 'bg-indigo-600 text-white border-transparent'
+                          : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                  <span className="text-xs text-gray-400 ml-2">
+                    {vista === 'proyecto'
+                      ? 'Todas las etapas, con el subtotal de cada módulo y sus funcionalidades.'
+                      : vista === 'modulos'
+                      ? 'Solo los módulos: el total suma todos los módulos.'
+                      : 'Módulo independiente: los % y el semáforo se calculan sobre este módulo.'}
+                  </span>
+                </div>
+              )}
+
               <div className="flex gap-4">
                 <div className="flex-1 bg-white rounded-lg shadow overflow-auto">
                   <table className="w-full text-xs border-collapse">
@@ -322,10 +389,23 @@ export default function AvanceCedulaPage() {
                         return (
                           <tr
                             key={`${clave}-${i}`}
-                            className={f.tipo === 'epica' ? 'bg-blue-50' : 'bg-amber-50'}
+                            className={
+                              f.tipo === 'modulo'
+                                ? 'bg-indigo-100 text-indigo-950 font-semibold'
+                                : f.tipo === 'epica'
+                                ? 'bg-blue-50'
+                                : 'bg-amber-50'
+                            }
                           >
                             <td className="px-2 py-1.5 text-center border">{i + 1}</td>
-                            <td className="px-3 py-1.5 border text-gray-800">{f.nombre}</td>
+                            <td
+                              className={`px-3 py-1.5 border ${f.tipo === 'modulo' ? '' : 'text-gray-800'} ${
+                                f.tipo === 'epica' && f.moduloId != null && typeof vista !== 'number' ? 'pl-7' : ''
+                              }`}
+                            >
+                              {f.tipo === 'modulo' && '📦 Módulo: '}
+                              {f.nombre}
+                            </td>
                             <td className="px-2 py-1.5 text-center border">{formatPct(f.porcentajeFase)}</td>
                             <td className="px-2 py-1.5 text-center border">{f.diasTotales}</td>
                             <td className="px-2 py-1.5 text-center border">{f.diasPlanificados}</td>

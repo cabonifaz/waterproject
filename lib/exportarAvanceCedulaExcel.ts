@@ -115,11 +115,24 @@ export async function exportarAvanceCedulaComoExcel(opciones: ExportarAvanceCedu
     while (j < filas.length && !filas[j].esEncabezadoEtapa) j++;
     return j - 1;
   };
+  // Subtotal de módulo: suma sus funcionalidades (las épicas que le siguen).
+  const finDeModulo = (i: number) => {
+    let j = i + 1;
+    while (j < filas.length && filas[j].tipo === 'epica' && filas[j].moduloId === filas[i].moduloId) j++;
+    return j - 1;
+  };
 
   filas.forEach((f, i) => {
     const r = FILA_INI + i;
-    const fondo = f.esEncabezadoEtapa ? ETAPA_FONDO : f.tipo === 'epica' ? EPICA_FONDO : TAREA_FONDO;
-    const colorTexto = f.esEncabezadoEtapa ? COLOR.etapaTexto : COLOR.actividadTexto;
+    const esModulo = f.tipo === 'modulo';
+    const fondo = f.esEncabezadoEtapa
+      ? ETAPA_FONDO
+      : esModulo
+      ? COLOR.moduloFondo
+      : f.tipo === 'epica'
+      ? EPICA_FONDO
+      : TAREA_FONDO;
+    const colorTexto = f.esEncabezadoEtapa || esModulo ? COLOR.etapaTexto : COLOR.actividadTexto;
 
     hoja.getCell(r, 1).value = i + 1;
     hoja.getCell(r, 2).value = f.nombre;
@@ -127,6 +140,17 @@ export async function exportarAvanceCedulaComoExcel(opciones: ExportarAvanceCedu
 
     if (f.esEncabezadoEtapa) {
       const fin = finDeEtapa(i);
+      for (const col of [4, 5, 6, 14, 15]) {
+        const L = hoja.getColumn(col).letter;
+        // La etapa suma sus filas pero no los subtotales de módulo (sus
+        // épicas ya están sumadas).
+        hoja.getCell(r, col).value =
+          fin > i
+            ? { formula: `SUMIF($P${r + 1}:$P${FILA_INI + fin},"<>modulo",${L}${r + 1}:${L}${FILA_INI + fin})` }
+            : 0;
+      }
+    } else if (esModulo) {
+      const fin = finDeModulo(i);
       for (const col of [4, 5, 6, 14, 15]) {
         const L = hoja.getColumn(col).letter;
         hoja.getCell(r, col).value = fin > i ? { formula: `SUM(${L}${r + 1}:${L}${FILA_INI + fin})` } : 0;
@@ -151,8 +175,8 @@ export async function exportarAvanceCedulaComoExcel(opciones: ExportarAvanceCedu
     for (let col = 1; col <= 15; col++) {
       const c = hoja.getCell(r, col);
       c.fill = fillSolido(col === 13 ? COLOR.blanco : fondo);
-      c.font = { size: 9, bold: f.esEncabezadoEtapa, color: { argb: col === 13 ? 'FF1F2937' : colorTexto } };
-      c.alignment = { horizontal: col === 2 ? 'left' : 'center', vertical: 'middle', indent: col === 2 && !f.esEncabezadoEtapa ? 1 : 0 };
+      c.font = { size: 9, bold: f.esEncabezadoEtapa || esModulo, color: { argb: col === 13 ? 'FF1F2937' : colorTexto } };
+      c.alignment = { horizontal: col === 2 ? 'left' : 'center', vertical: 'middle', indent: col === 2 && !f.esEncabezadoEtapa && !esModulo ? (f.moduloId != null ? 2 : 1) : 0 };
       c.border = bordeFino();
     }
   });
@@ -165,7 +189,7 @@ export async function exportarAvanceCedulaComoExcel(opciones: ExportarAvanceCedu
   for (const col of [4, 5, 6, 14, 15]) {
     const L = hoja.getColumn(col).letter;
     hoja.getCell(T, col).value = {
-      formula: `SUMIF($P$${FILA_INI}:$P$${FILA_FIN},"<>etapa",${L}${FILA_INI}:${L}${FILA_FIN})`,
+      formula: `SUMIFS(${L}${FILA_INI}:${L}${FILA_FIN},$P${FILA_INI}:$P${FILA_FIN},"<>etapa",$P${FILA_INI}:$P${FILA_FIN},"<>modulo")`,
     };
   }
   aplicarFormulas(T);

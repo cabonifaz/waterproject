@@ -242,11 +242,16 @@ export interface DetalleCorteAvance {
 }
 
 export interface FilaAvanceCedula {
-  tipo: 'etapa' | 'epica' | 'tarea_matriz';
+  // 'modulo' es solo de visualización (subtotal de un módulo): no se guarda
+  // en los cortes (cortes_avance_detalle solo tiene etapa/epica/tarea_matriz).
+  tipo: 'etapa' | 'epica' | 'tarea_matriz' | 'modulo';
   referenciaId: number;
   etapaNombre: string;
   nombre: string;
   esEncabezadoEtapa: boolean;
+  esSubtotalModulo?: boolean; // fila 'modulo': no suma al total (sus épicas ya suman)
+  moduloId?: number; // épicas: módulo al que pertenecen
+  moduloNombre?: string;
   diasTotales: number;
   diasPlanificados: number;
   diasReales: number;

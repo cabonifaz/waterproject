@@ -96,6 +96,8 @@ export function construirFilasAvanceCedula(estructura: EstructuraProyecto): Fila
           // "Cierre del módulo" se repite en cada módulo: se aclara de cuál es.
           nombre: epica.es_cierre_modulo ? `${epica.nombre} — ${modulo.nombre}` : epica.nombre,
           esEncabezadoEtapa: false,
+          moduloId: modulo.id,
+          moduloNombre: modulo.nombre,
           diasTotales: diasEpicaBaseline(epica, 'diasBaseline'),
           diasPlanificados: diasEpicaBaseline(epica, 'diasPlanificados'),
           diasReales: diasEpicaBaseline(epica, 'diasReales'),
@@ -122,6 +124,58 @@ export function construirFilasAvanceCedula(estructura: EstructuraProyecto): Fila
   }
 
   return filas;
+}
+
+// Vistas del reporte:
+//   'proyecto' -> todas las etapas; dentro de cada etapa con módulos, un
+//                 subtotal por módulo seguido de sus funcionalidades.
+//   'modulos'  -> solo los módulos (subtotal + funcionalidades); el total
+//                 suma todos los módulos.
+//   number     -> un módulo independiente: solo sus funcionalidades, con
+//                 los % y el semáforo calculados sobre ese módulo.
+// Los cortes se siguen guardando con las filas "crudas" (sin subtotales).
+export type VistaAvance = 'proyecto' | 'modulos' | number;
+
+function subtotalModulo(epicas: FilaAvanceCedula[]): FilaAvanceCedula {
+  const primera = epicas[0];
+  return {
+    tipo: 'modulo',
+    referenciaId: primera.moduloId ?? 0,
+    etapaNombre: primera.etapaNombre,
+    nombre: primera.moduloNombre ?? 'Módulo',
+    esEncabezadoEtapa: false,
+    esSubtotalModulo: true,
+    moduloId: primera.moduloId,
+    moduloNombre: primera.moduloNombre,
+    diasTotales: epicas.reduce((a, f) => a + f.diasTotales, 0),
+    diasPlanificados: epicas.reduce((a, f) => a + f.diasPlanificados, 0),
+    diasReales: epicas.reduce((a, f) => a + f.diasReales, 0),
+    totalActividades: epicas.reduce((a, f) => a + f.totalActividades, 0),
+    actividadesCerradas: epicas.reduce((a, f) => a + f.actividadesCerradas, 0),
+  };
+}
+
+export function construirVistaAvance(filas: FilaAvanceCedula[], vista: VistaAvance): FilaAvanceCedula[] {
+  if (typeof vista === 'number') return filas.filter((f) => f.tipo === 'epica' && f.moduloId === vista);
+
+  const base = vista === 'modulos' ? filas.filter((f) => f.tipo === 'epica' && f.moduloId != null) : filas;
+  const resultado: FilaAvanceCedula[] = [];
+  let moduloActual: number | undefined;
+  for (let i = 0; i < base.length; i++) {
+    const f = base[i];
+    if (f.tipo === 'epica' && f.moduloId != null && f.moduloId !== moduloActual) {
+      moduloActual = f.moduloId;
+      const delModulo: FilaAvanceCedula[] = [];
+      for (let j = i; j < base.length && base[j].tipo === 'epica' && base[j].moduloId === moduloActual; j++) {
+        delModulo.push(base[j]);
+      }
+      resultado.push(subtotalModulo(delModulo));
+    } else if (f.tipo !== 'epica') {
+      moduloActual = undefined;
+    }
+    resultado.push(f);
+  }
+  return resultado;
 }
 
 export function porcentaje(parte: number, total: number): number | null {
@@ -165,7 +219,7 @@ export function calcularFilasConPorcentajes(filas: FilaAvanceCedula[]): {
 } {
   // El total del proyecto es la suma de los "hijos" (no de los encabezados
   // de etapa, para no contar dos veces).
-  const soloHijos = filas.filter((f) => !f.esEncabezadoEtapa);
+  const soloHijos = filas.filter((f) => !f.esEncabezadoEtapa && !f.esSubtotalModulo);
   const totalDiasTotales = soloHijos.reduce((acc, f) => acc + f.diasTotales, 0);
   const totalDiasPlanificados = soloHijos.reduce((acc, f) => acc + f.diasPlanificados, 0);
   const totalDiasReales = soloHijos.reduce((acc, f) => acc + f.diasReales, 0);
