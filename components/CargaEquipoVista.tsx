@@ -10,6 +10,7 @@ import { useMemo, useState } from 'react';
 import { Sprint } from '@/types';
 import { calcularCargaEquipo, CampoCarga, CargaPersona, FuenteCarga, ResumenGrupo } from '@/lib/cargaEquipo';
 import { formatFechaCorta } from '@/lib/hitos';
+import { etiquetaPeriodo, etiquetasMes, agruparConsecutivas } from '@/lib/periodos';
 
 interface Props {
   fuentes: FuenteCarga[];
@@ -31,11 +32,22 @@ function siguienteDiaHabil(fecha: string): string {
   return d.toISOString().slice(0, 10);
 }
 
-// Días hábiles de todos los sprints, en orden, con su sprint.
+const MESES = [
+  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
+];
+
+// Días hábiles de todos los sprints, en orden, con su sprint y su mes.
 function columnasDias(sprints: Sprint[]) {
-  const cols: { fecha: string; sprint: string; etiqueta: string }[] = [];
+  const cols: {
+    fecha: string;
+    sprint: string;
+    sprintId: number;
+    mesLabel: string;
+    esPriorizacion: boolean;
+    etiqueta: string;
+  }[] = [];
   for (const s of sprints) {
-    const label = s.tipo === 'priorizacion' ? 'Zona Gris' : `Sprint ${s.numero}`;
     const d = new Date(`${String(s.fecha_inicio).slice(0, 10)}T00:00:00Z`);
     const fin = new Date(`${String(s.fecha_fin).slice(0, 10)}T00:00:00Z`);
     for (; d <= fin; d.setUTCDate(d.getUTCDate() + 1)) {
@@ -43,7 +55,10 @@ function columnasDias(sprints: Sprint[]) {
       if (dow === 0 || dow === 6) continue;
       cols.push({
         fecha: d.toISOString().slice(0, 10),
-        sprint: label,
+        sprint: etiquetaPeriodo(s),
+        sprintId: s.id,
+        mesLabel: `${MESES[d.getUTCMonth()]} ${d.getUTCFullYear()}`,
+        esPriorizacion: s.tipo === 'priorizacion',
         etiqueta: `${DIAS_SEMANA[dow]}${String(d.getUTCDate()).padStart(2, '0')}`,
       });
     }
@@ -71,15 +86,18 @@ const CargaEquipoVista = ({ fuentes, sprints }: Props) => {
   const hoy = hoyISO();
   const finPI = columnas.length ? columnas[columnas.length - 1].fecha : null;
 
+  // Un grupo por período (aunque dos Zonas Grises seguidas se llamen igual).
   const gruposSprint = useMemo(() => {
-    const g: { label: string; cantidad: number }[] = [];
+    const g: { label: string; cantidad: number; id: number }[] = [];
     for (const c of columnas) {
       const u = g[g.length - 1];
-      if (u && u.label === c.sprint) u.cantidad++;
-      else g.push({ label: c.sprint, cantidad: 1 });
+      if (u && u.id === c.sprintId) u.cantidad++;
+      else g.push({ label: c.sprint, cantidad: 1, id: c.sprintId });
     }
     return g;
   }, [columnas]);
+  // Fila de meses, con el mismo rótulo que los Gantt ("Priorización <mes>").
+  const gruposMes = useMemo(() => agruparConsecutivas(etiquetasMes(columnas)), [columnas]);
 
   const sprintsConDatos = resultado.sprints.filter((s) => resultado.personas.some((p) => p.porSprint.has(s)));
   const nombrePersona = (p: CargaPersona) => (
@@ -247,7 +265,20 @@ const CargaEquipoVista = ({ fuentes, sprints }: Props) => {
               <table className="text-[10px] border-collapse">
                 <thead>
                   <tr>
-                    <th className="sticky left-0 bg-white border px-2 min-w-[180px]" rowSpan={2} />
+                    <th className="sticky left-0 bg-white border px-2 min-w-[180px]" rowSpan={3} />
+                    {gruposMes.map((g, i) => (
+                      <th
+                        key={`${g.label}-${i}`}
+                        colSpan={g.cantidad}
+                        className={`border px-1 py-1 font-semibold whitespace-nowrap ${
+                          g.label.startsWith('Priorización') ? 'bg-violet-100 text-violet-900' : 'bg-green-100 text-green-900'
+                        }`}
+                      >
+                        {g.label}
+                      </th>
+                    ))}
+                  </tr>
+                  <tr>
                     {gruposSprint.map((g, i) => (
                       <th key={`${g.label}-${i}`} colSpan={g.cantidad} className="border bg-green-100 text-green-900 px-1 py-1 font-semibold">
                         {g.label}

@@ -20,6 +20,7 @@
 
 import type { Worksheet, Workbook } from 'exceljs';
 import { MARCA_COLUMNA_ID } from './formatoExcelGantt';
+import { etiquetasMes } from './periodos';
 
 export interface ColumnaExcel {
   fecha: string;
@@ -30,6 +31,7 @@ export interface ColumnaExcel {
   esFeriado: boolean;
   esInicioGrupo: boolean;
   esHoy?: boolean;
+  esPriorizacion?: boolean; // Zona Gris de priorización ("Priorización <mes>")
 }
 
 export type NivelDivisorExcel = 'etapa' | 'modulo' | 'epica';
@@ -225,17 +227,10 @@ export async function exportarGanttComoExcel(opciones: ExportarGanttOpciones): P
   const L_INI = letra(COL_INICIO_DIAS);
   const L_FIN = letra(COL_FIN_DIAS);
 
-  // Etiqueta de la fila de meses por columna. Cada Zona Gris es un solo
-  // bloque "Priorización <mes en que termina>" (ej. 31/08–11/09 ->
-  // "Priorización Septiembre 2026"), como en el cronograma de referencia.
-  const esZonaGris = (c: ColumnaExcel) => c.grupoLabel === 'Zona Gris';
-  const etiquetaMes = columnas.map((c) => c.mesLabel);
-  for (let i = 0; i < columnas.length; i++) {
-    if (!esZonaGris(columnas[i]) || (i > 0 && esZonaGris(columnas[i - 1]))) continue;
-    let fin = i;
-    while (fin + 1 < columnas.length && esZonaGris(columnas[fin + 1])) fin++;
-    for (let k = i; k <= fin; k++) etiquetaMes[k] = `Priorización ${columnas[fin].mesLabel}`;
-  }
+  // Etiqueta de la fila de meses por columna: cada bloque de priorización es
+  // "Priorización <mes en que termina>"; la Zona Gris de actividades
+  // finales lleva el mes normal (ver lib/periodos.ts).
+  const etiquetaMes = etiquetasMes(columnas);
 
   const inicioMes = columnas.map((_, i) => i === 0 || etiquetaMes[i] !== etiquetaMes[i - 1]);
 
@@ -283,7 +278,15 @@ export async function exportarGanttComoExcel(opciones: ExportarGanttOpciones): P
   aplicarBordesDia(1);
 
   colCursor = COL_INICIO_DIAS;
-  for (const g of agruparConsecutivos(columnas, (c) => c.grupoLabel)) {
+  // Un grupo por período (corta en su primer día), aunque dos Zonas Grises
+  // seguidas se llamen igual.
+  const gruposPeriodo: { label: string; cantidad: number }[] = [];
+  for (const c of columnas) {
+    const ultimo = gruposPeriodo[gruposPeriodo.length - 1];
+    if (ultimo && !c.esInicioGrupo) ultimo.cantidad++;
+    else gruposPeriodo.push({ label: c.grupoLabel, cantidad: 1 });
+  }
+  for (const g of gruposPeriodo) {
     hoja.mergeCells(2, colCursor, 2, colCursor + g.cantidad - 1);
     const cell = hoja.getCell(2, colCursor);
     cell.value = g.label;

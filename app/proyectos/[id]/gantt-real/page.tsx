@@ -20,6 +20,7 @@ import AlertaSuperposiciones from '@/components/AlertaSuperposiciones';
 import { analizarSuperposiciones } from '@/lib/superposiciones';
 import { filtrarConDivisores } from '@/lib/ganttFiltro';
 import { EstructuraProyecto, Sprint, Feriado, Miembro, ObservacionInventario } from '@/types';
+import { etiquetaPeriodo, etiquetasMes, agruparConsecutivas } from '@/lib/periodos';
 import { calcularTotalesDias, calcularPorcentaje, totalDias, TOTALES_VACIOS } from '@/lib/planificacion';
 import { porcentaje as porcentajeCumplim, calcularSemaforo, topePorcentaje, Semaforo } from '@/lib/avanceCedula';
 import { exportarGanttComoExcel, ItemExcel } from '@/lib/exportarGanttExcel';
@@ -84,6 +85,7 @@ interface Columna {
   esFeriado: boolean;
   esInicioGrupo: boolean;
   esHoy: boolean;
+  esPriorizacion: boolean; // Zona Gris de priorización (rótulo "Priorización <mes>")
 }
 
 const DIAS_SEMANA = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
@@ -102,11 +104,9 @@ function formatISO(fecha: Date): string {
   return fecha.toISOString().split('T')[0];
 }
 
-function etiquetaGrupo(sprint: Sprint): string {
-  // Períodos de priorización (al inicio y, opcionalmente, al final del PI):
-  // "Zona Gris", como en el cronograma de referencia del usuario.
-  return sprint.tipo === 'priorizacion' ? 'Zona Gris' : `Sprint ${sprint.numero}`;
-}
+// Rótulo de la fila de sprints: "Sprint N" o "Zona Gris" (priorización o
+// actividades finales), ver lib/periodos.ts.
+const etiquetaGrupo = (sprint: Sprint): string => etiquetaPeriodo(sprint);
 
 function calcularColumnas(sprints: Sprint[], feriados: Set<string>): Columna[] {
   const hoyISO = formatISO(soloFecha(new Date()));
@@ -129,6 +129,7 @@ function calcularColumnas(sprints: Sprint[], feriados: Set<string>): Columna[] {
           esFeriado: feriados.has(fecha),
           esInicioGrupo: esPrimerDiaDelSprint,
           esHoy: fecha === hoyISO,
+          esPriorizacion: sprint.tipo === 'priorizacion',
         });
         esPrimerDiaDelSprint = false;
       }
@@ -552,28 +553,25 @@ export default function GanttRealPage() {
     const grupos: { label: string; cantidad: number }[] = [];
     for (const c of columnas) {
       const ultimo = grupos[grupos.length - 1];
-      if (ultimo && ultimo.label === c.grupoLabel) ultimo.cantidad++;
+      // Corta en el primer día de cada período: dos Zonas Grises seguidas
+      // (priorización + actividades finales) quedan en celdas separadas.
+      if (ultimo && !c.esInicioGrupo) ultimo.cantidad++;
       else grupos.push({ label: c.grupoLabel, cantidad: 1 });
     }
     return grupos;
   }, [columnas]);
 
-  const gruposMes = useMemo(() => {
-    const grupos: { label: string; cantidad: number }[] = [];
-    for (const c of columnas) {
-      const ultimo = grupos[grupos.length - 1];
-      if (ultimo && ultimo.label === c.mesLabel) ultimo.cantidad++;
-      else grupos.push({ label: c.mesLabel, cantidad: 1 });
-    }
-    return grupos;
-  }, [columnas]);
+  // Fila de meses: cada bloque de priorización va como "Priorización <mes>"
+  // (igual que el Excel y el cronograma de referencia).
+  const mesPorColumna = useMemo(() => etiquetasMes(columnas), [columnas]);
+  const gruposMes = useMemo(() => agruparConsecutivas(mesPorColumna), [mesPorColumna]);
 
   // Un mismo día puede ser a la vez inicio de sprint e inicio de mes — acá
   // se resuelve la jerarquía visual: mes (más grueso) > sprint > día común,
   // aplicada de forma continua desde el encabezado hasta cada fila.
   const esInicioMes = useMemo(
-    () => columnas.map((c, i) => i === 0 || c.mesLabel !== columnas[i - 1].mesLabel),
-    [columnas]
+    () => mesPorColumna.map((m, i) => i === 0 || m !== mesPorColumna[i - 1]),
+    [mesPorColumna]
   );
   const bordeGrupoDia = (i: number) =>
     esInicioMes[i] ? 'border-l-4 border-l-slate-900' : columnas[i].esInicioGrupo ? 'border-l-2 border-l-slate-500' : '';
@@ -937,7 +935,9 @@ export default function GanttRealPage() {
                         <div
                           key={`${g.label}-${i}`}
                           style={{ ...CAPA_FIJA, top: 0, height: ALTO_FILA_MES, gridColumn: `${inicio} / ${inicio + g.cantidad}`, gridRow: 1 }}
-                          className="sticky z-20 border-y border-r border-l-4 border-l-slate-900 px-1 py-1 flex items-center justify-center font-semibold bg-green-100 text-green-900"
+                          className={`sticky z-20 border-y border-r border-l-4 border-l-slate-900 px-1 py-1 flex items-center justify-center font-semibold whitespace-nowrap overflow-hidden ${
+                            g.label.startsWith('Priorización') ? 'bg-violet-100 text-violet-900' : 'bg-green-100 text-green-900'
+                          }`}
                         >
                           {g.label}
                         </div>

@@ -214,7 +214,7 @@ CREATE TABLE IF NOT EXISTS sprints (
   id INT AUTO_INCREMENT PRIMARY KEY,
   pi_id INT NOT NULL,
   numero INT NOT NULL,
-  tipo ENUM('priorizacion','sprint') NOT NULL DEFAULT 'sprint',
+  tipo ENUM('priorizacion','sprint','cierre') NOT NULL DEFAULT 'sprint',
   fecha_inicio DATE NOT NULL,
   fecha_fin DATE NOT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -226,6 +226,9 @@ CREATE TABLE IF NOT EXISTS sprints (
 -- no la agrega si la tabla ya estaba creada); "Duplicate column" en un
 -- re-run es esperado e inofensivo.
 ALTER TABLE sprints ADD COLUMN tipo ENUM('priorizacion','sprint') NOT NULL DEFAULT 'sprint' AFTER numero;
+-- 'cierre': Zona Gris de actividades finales del proyecto, al final del PI
+-- (ej. enero, después de la priorización de diciembre). Ver lib/periodos.ts.
+ALTER TABLE sprints MODIFY COLUMN tipo ENUM('priorizacion','sprint','cierre') NOT NULL DEFAULT 'sprint';
 
 -- Paso a sprints por PI sobre una tabla que era global: se agrega pi_id, se
 -- cambia el UNIQUE(numero) por UNIQUE(pi_id, numero) y se engancha la FK.

@@ -10,6 +10,7 @@ import Modal from './Modal';
 import FormularioSprints from './FormularioSprints';
 import EditarSprintsModal from './EditarSprintsModal';
 import { Sprint } from '@/types';
+import { nombrePeriodo } from '@/lib/periodos';
 
 interface Props {
   piId: number;
@@ -61,11 +62,11 @@ const SprintsSeccion = ({ piId, sprints, onRefrescar }: Props) => {
               onClick={() => setMostrarEditar(true)}
               title="Editar fechas"
               className={`flex-shrink-0 border rounded-lg px-3 py-2 text-center min-w-[110px] cursor-pointer hover:border-blue-400 ${
-                s.tipo === 'priorizacion' ? 'bg-gray-200 border-gray-300' : 'bg-slate-50 border-slate-200'
+                s.tipo !== 'sprint' ? 'bg-gray-200 border-gray-300' : 'bg-slate-50 border-slate-200'
               }`}
             >
               <p className="text-xs font-bold text-slate-700">
-                {s.tipo === 'priorizacion' ? 'Priorización' : `Sprint ${s.numero}`}
+                {nombrePeriodo(s)}
               </p>
               <p className="text-[11px] text-slate-500 mt-1">
                 {formatFecha(s.fecha_inicio)} – {formatFecha(s.fecha_fin)}

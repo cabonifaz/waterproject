@@ -11,6 +11,7 @@ import { useEffect, useState } from 'react';
 import Modal from './Modal';
 import FormularioSprints from './FormularioSprints';
 import { Sprint } from '@/types';
+import { nombrePeriodo } from '@/lib/periodos';
 
 interface Props {
   piId: number;
@@ -96,7 +97,7 @@ const EditarSprintsModal = ({ piId, sprints, onClose, onCambio }: Props) => {
               return (
                 <tr key={s.id} className={`border-b last:border-b-0 ${cambiado ? 'bg-amber-50' : ''}`}>
                   <td className="px-2 py-1.5 font-semibold text-slate-700">
-                    {s.tipo === 'priorizacion' ? 'Priorización' : `Sprint ${s.numero}`}
+                    {nombrePeriodo(s)}
                   </td>
                   <td className="px-2 py-1.5">
                     <input

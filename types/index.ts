@@ -55,7 +55,7 @@ export interface Sprint {
   id: number;
   pi_id: number;
   numero: number;
-  tipo: 'priorizacion' | 'sprint';
+  tipo: 'priorizacion' | 'sprint' | 'cierre'; // ver lib/periodos.ts
   fecha_inicio: Date;
   fecha_fin: Date;
   created_at: Date;

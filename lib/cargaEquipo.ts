@@ -7,6 +7,7 @@
 // misma persona en varios proyectos se reconoce por su nombre.
 
 import { EstructuraProyecto, Miembro, Sprint } from '@/types';
+import { clavePeriodo } from './periodos';
 
 export type CampoCarga = 'diasPlanificados' | 'diasReales';
 
@@ -47,13 +48,12 @@ export interface ResultadoCarga {
 const normalizar = (s: string) =>
   s
     .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
+    .replace(/[\u0300-\u036f]/g, '') // quita tildes
     .trim()
     .toLowerCase();
 
-// Un PI puede tener Zona Gris al inicio (numero 0) y al final (numero alto).
-const etiquetaSprint = (s: Sprint) =>
-  s.tipo === 'priorizacion' ? (s.numero === 0 ? 'Zona Gris' : 'Zona Gris final') : `Sprint ${s.numero}`;
+// Clave por período (las distintas Zonas Grises no se mezclan), ver lib/periodos.ts.
+const etiquetaSprint = (s: Sprint) => clavePeriodo(s);
 
 // Para un día dado, a qué sprint pertenece (por rango de fechas).
 export function crearBuscadorSprint(sprints: Sprint[]): (fecha: string) => string | null {
